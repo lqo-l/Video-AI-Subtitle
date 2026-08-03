@@ -128,7 +128,11 @@
       player.addEventListener("timeupdate", syncSubtitle);
       playbackReady = true;
     }
-    const container = player.parentElement;
+    // Moon Modified: html5-video-container can have zero height on YouTube.
+    // Anchor to the stable player box so bottom positioning stays inside the video.
+    const container = player.closest(".html5-video-player") || player.parentElement;
+    const existingOverlay = document.querySelector("#ytba-overlay");
+    if (existingOverlay && existingOverlay.parentElement !== container) existingOverlay.remove();
     if (container && !document.querySelector("#ytba-overlay")) {
       overlay = document.createElement("div");
       overlay.id = "ytba-overlay";

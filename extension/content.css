@@ -16,7 +16,7 @@
 .ytba-time { color: #76a7ff; font-size: 12px; }
 .ytba-en { color: #aeb5c2; }
 .ytba-zh { color: #fff; margin-top: 2px; }
-#ytba-overlay { position: absolute; z-index: 2147483639; left: 8%; right: 8%; bottom: 8%; text-align: center; pointer-events: none; text-shadow: 0 2px 4px #000, 0 0 7px #000; font-family: Arial, sans-serif; }
+#ytba-overlay { position: absolute; z-index: 2147483639; left: 8%; right: 8%; bottom: 10%; width: auto; text-align: center; pointer-events: none; text-shadow: 0 2px 4px #000, 0 0 7px #000; font-family: Arial, sans-serif; }
 #ytba-overlay .en { color: #fff; font-size: clamp(16px, 2vw, 25px); }
 #ytba-overlay .zh { color: #ffe66d; font-size: clamp(18px, 2.2vw, 28px); margin-top: 5px; }
 #ytba-prompt { position: fixed; z-index: 2147483641; right: 24px; top: 84px; width: 330px; background: #181b22; color: #fff; padding: 16px; border: 1px solid #3b4350; border-radius: 10px; box-shadow: 0 12px 35px #0009; }
