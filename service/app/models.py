@@ -50,6 +50,9 @@ class JobView(BaseModel):
     state: Literal["queued", "running", "completed", "failed"]
     stage: str
     progress: int
+    # Moon Add: expose incremental translation state to the browser panel.
+    translated_segments: int = 0
+    total_segments: int = 0
+    preview_segments: list[Segment] = Field(default_factory=list)
     error: str | None = None
     result: ProcessedVideo | None = None
-

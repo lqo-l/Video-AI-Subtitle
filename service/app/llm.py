@@ -70,7 +70,9 @@ class LlmClient:
             for i, item in enumerate(batch):
                 item.zh = translated.get(offset + i, item.en)
             if progress:
-                progress(min(88, 55 + int((offset + len(batch)) / max(len(segments), 1) * 33)))
+                # Moon Modified: publish the completed count after every batch.
+                completed = min(offset + len(batch), len(segments))
+                progress(completed, len(segments))
 
     async def summarize(self, title: str, segments: list[Segment]) -> tuple[str, list[str]]:
         transcript = "\n".join(f"[{s.start:.0f}s] {s.en} / {s.zh}" for s in segments)
@@ -84,4 +86,3 @@ class LlmClient:
             return text.strip(), []
         data = json.loads(match.group())
         return str(data.get("summary", "")).strip(), [str(x) for x in data.get("key_points", [])]
-

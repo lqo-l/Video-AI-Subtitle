@@ -5,6 +5,8 @@
   let overlay = null;
   let lastUrl = "";
   let pollTimer = null;
+  let renderedTranslationCount = -1;
+  let activeTab = "transcript";
 
   const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
   const formatTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -63,12 +65,19 @@
     try {
       job = await api(`/jobs/${job.id}`);
       updateStatus(job.stage, job.progress, job.error);
+      // Moon Begin: render each completed translation batch immediately.
+      if (job.preview_segments?.length && job.translated_segments !== renderedTranslationCount) {
+        renderedTranslationCount = job.translated_segments;
+        result = {segments: job.preview_segments, summary: "", key_points: []};
+        if (activeTab === "transcript") renderTab("transcript");
+      }
+      // Moon End
       if (job.state === "completed") {
         result = job.result;
         setupResult();
         chrome.runtime.sendMessage({type:"notify", message:`《${result.title}》处理完成，请手动播放。`});
       } else if (job.state !== "failed") {
-        pollTimer = setTimeout(poll, 1500);
+        pollTimer = setTimeout(poll, job.stage.startsWith("翻译中文字幕") ? 750 : 1500);
       }
     } catch (error) { updateStatus("连接中断", 0, error.message); }
   }
@@ -87,6 +96,7 @@
 
   function renderTab(tab) {
     if (!result) return;
+    activeTab = tab;
     const root = ensurePanel();
     root.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("active", x.dataset.tab === tab));
     const body = root.querySelector(".ytba-body");
@@ -94,7 +104,7 @@
       body.innerHTML = `<h3>摘要</h3><div>${escapeHtml(result.summary).replace(/\n/g,"<br>")}</div><h3>关键点</h3><ul>${result.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`;
       return;
     }
-    body.innerHTML = result.segments.map((x,i)=>`<div class="ytba-segment" data-index="${i}"><div class="ytba-time">${formatTime(x.start)}</div><div class="ytba-en">${escapeHtml(x.en)}</div><div class="ytba-zh">${escapeHtml(x.zh)}</div></div>`).join("");
+    body.innerHTML = result.segments.map((x,i)=>`<div class="ytba-segment" data-index="${i}"><div class="ytba-time">${formatTime(x.start)}</div><div class="ytba-en">${escapeHtml(x.en)}</div><div class="ytba-zh">${x.zh ? escapeHtml(x.zh) : '<span style="color:#707784">等待翻译…</span>'}</div></div>`).join("");
     body.querySelectorAll(".ytba-segment").forEach(el => el.onclick = () => { const player=video(); player.currentTime=result.segments[Number(el.dataset.index)].start; });
   }
 
@@ -113,7 +123,7 @@
   function watchNavigation() {
     if (location.href === lastUrl) return;
     lastUrl = location.href;
-    clearTimeout(pollTimer); job = result = null;
+    clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; activeTab = "transcript";
     document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open");
     if (location.pathname === "/watch") setTimeout(showPrompt, 1800);
   }

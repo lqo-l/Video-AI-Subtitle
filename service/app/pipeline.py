@@ -106,6 +106,10 @@ async def process_job(job_id: str, url: str) -> None:
     if cache_path.exists():
         job.state, job.stage, job.progress = "completed", "已从缓存加载", 100
         job.result = ProcessedVideo.model_validate_json(cache_path.read_text(encoding="utf-8"))
+        # Moon Add: cached jobs expose the same completed incremental state.
+        job.preview_segments = job.result.segments
+        job.translated_segments = len(job.result.segments)
+        job.total_segments = len(job.result.segments)
         return
     temp = WORK_DIR / job_id
     temp.mkdir(parents=True, exist_ok=True)
@@ -120,11 +124,22 @@ async def process_job(job_id: str, url: str) -> None:
             source = "whisper"
         if not segments:
             raise RuntimeError("未识别到有效英文语音")
-        job.stage, job.progress = "翻译中文字幕", 55
+        # Moon Begin: make translated batches visible before the full job completes.
+        job.preview_segments = segments
+        job.total_segments = len(segments)
+        job.stage, job.progress = f"翻译中文字幕 0 / {len(segments)}", 55
+
+        def publish_translation(completed: int, total: int) -> None:
+            job.translated_segments = completed
+            job.total_segments = total
+            job.progress = min(88, 55 + int(completed / max(total, 1) * 33))
+            job.stage = f"翻译中文字幕 {completed} / {total}"
+        # Moon End
+
         config = load_config()
         client = LlmClient(config)
         try:
-            await client.translate(segments, lambda p: setattr(job, "progress", p))
+            await client.translate(segments, publish_translation)
             job.stage, job.progress = "生成摘要与关键点", 92
             summary, key_points = await client.summarize(info.get("title", video_id), segments)
         finally:
@@ -141,6 +156,9 @@ async def process_job(job_id: str, url: str) -> None:
         )
         cache_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
         job.result = result
+        job.preview_segments = segments
+        job.translated_segments = len(segments)
+        job.total_segments = len(segments)
         job.state, job.stage, job.progress = "completed", "处理完成，请手动播放", 100
     except Exception as exc:
         job.state, job.stage, job.error = "failed", "处理失败", str(exc)
