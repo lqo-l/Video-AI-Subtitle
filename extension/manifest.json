@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube 双语字幕助手",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "本机生成英文视频的中英字幕、摘要和关键点。",
   "permissions": ["storage", "notifications", "downloads", "nativeMessaging"],
   "host_permissions": ["http://127.0.0.1:18765/*", "https://www.youtube.com/*"],

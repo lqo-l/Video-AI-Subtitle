@@ -5,6 +5,10 @@
 .ytba-button { color: #fff; background: #2867d6; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
 .ytba-button.secondary { background: #343945; }
 .ytba-status { padding: 12px 14px; border-bottom: 1px solid #333842; }
+.ytba-controls { padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid #333842; }
+.ytba-control { color: #e8ebf0; background: #343945; border: 1px solid #4a5160; border-radius: 5px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
+.ytba-control.active { background: #2867d6; border-color: #4b8cff; }
+.ytba-control select { color: inherit; background: transparent; border: 0; outline: 0; font-size: inherit; }
 .ytba-progress { height: 5px; background: #343945; margin-top: 8px; border-radius: 9px; overflow: hidden; }
 .ytba-progress > div { height: 100%; background: #4b8cff; transition: width .25s; }
 .ytba-tabs { display: flex; border-bottom: 1px solid #333842; }
@@ -19,6 +23,7 @@
 #ytba-overlay { position: absolute; z-index: 2147483639; left: 8%; right: 8%; bottom: 10%; width: auto; text-align: center; pointer-events: none; text-shadow: 0 2px 4px #000, 0 0 7px #000; font-family: Arial, sans-serif; }
 #ytba-overlay .en { color: #fff; font-size: clamp(16px, 2vw, 25px); }
 #ytba-overlay .zh { color: #ffe66d; font-size: clamp(18px, 2.2vw, 28px); margin-top: 5px; }
+#ytba-overlay.ytba-overlay-background { background: rgba(0,0,0,.58); border-radius: 8px; padding: 8px 12px; }
 #ytba-prompt { position: fixed; z-index: 2147483641; right: 24px; top: 84px; width: 330px; background: #181b22; color: #fff; padding: 16px; border: 1px solid #3b4350; border-radius: 10px; box-shadow: 0 12px 35px #0009; }
 #ytba-prompt .actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
 body.ytba-panel-open #page-manager { margin-right: 390px; }

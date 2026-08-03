@@ -8,6 +8,8 @@
   let renderedTranslationCount = -1;
   let activeTab = "transcript";
   let playbackReady = false;
+  const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
+  let subtitlePrefs = {...defaultSubtitlePrefs};
 
   const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
   const formatTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -45,9 +47,10 @@
     if (root) return root;
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><span data-status>准备中</span><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-tabs"><button class="active" data-tab="transcript">字幕</button><button data-tab="summary">摘要</button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><span data-status>准备中</span><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript">字幕</button><button data-tab="summary">摘要</button></div><div class="ytba-body"></div>`;
     root.querySelector("[data-close]").onclick = () => { chrome.runtime.sendMessage({type:"release-service"}); root.remove(); document.body.classList.remove("ytba-panel-open"); };
     root.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => renderTab(button.dataset.tab));
+    bindSubtitleControls(root);
     root.querySelector("[data-export]").onclick = () => chrome.runtime.sendMessage({type:"download-markdown", content:buildMarkdown(), filename:safeName(result.title)});
     document.body.appendChild(root);
     document.body.classList.add("ytba-panel-open");
@@ -55,6 +58,45 @@
   }
 
   function safeName(name) { return name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 100); }
+
+  function bindSubtitleControls(root) {
+    // Moon Begin: playback-only subtitle display controls.
+    root.querySelector('[data-control="visible"]').onclick=()=>updateSubtitlePrefs({visible:!subtitlePrefs.visible});
+    root.querySelector('[data-control="language"]').onchange=event=>updateSubtitlePrefs({language:event.target.value});
+    root.querySelector('[data-control="smaller"]').onclick=()=>updateSubtitlePrefs({fontScale:Math.max(.65,subtitlePrefs.fontScale-.1)});
+    root.querySelector('[data-control="larger"]').onclick=()=>updateSubtitlePrefs({fontScale:Math.min(1.8,subtitlePrefs.fontScale+.1)});
+    root.querySelector('[data-control="up"]').onclick=()=>updateSubtitlePrefs({bottom:Math.min(40,subtitlePrefs.bottom+3)});
+    root.querySelector('[data-control="down"]').onclick=()=>updateSubtitlePrefs({bottom:Math.max(2,subtitlePrefs.bottom-3)});
+    root.querySelector('[data-control="background"]').onclick=()=>updateSubtitlePrefs({background:!subtitlePrefs.background});
+    root.querySelector('[data-control="reset"]').onclick=()=>updateSubtitlePrefs({...defaultSubtitlePrefs});
+    refreshSubtitleControls();
+    // Moon End
+  }
+
+  function updateSubtitlePrefs(changes) {
+    subtitlePrefs={...subtitlePrefs,...changes};
+    chrome.storage.local.set({subtitlePrefs});
+    applySubtitlePrefs();
+    refreshSubtitleControls();
+    syncSubtitle();
+  }
+
+  function refreshSubtitleControls() {
+    const root=document.querySelector("#ytba-root"); if(!root)return;
+    const visible=root.querySelector('[data-control="visible"]');
+    visible.textContent=subtitlePrefs.visible?"隐藏字幕":"显示字幕";
+    visible.classList.toggle("active",subtitlePrefs.visible);
+    root.querySelector('[data-control="language"]').value=subtitlePrefs.language;
+    root.querySelector('[data-control="background"]').classList.toggle("active",subtitlePrefs.background);
+  }
+
+  function applySubtitlePrefs() {
+    if(!overlay)return;
+    overlay.style.display=subtitlePrefs.visible?"block":"none";
+    overlay.style.bottom=`${subtitlePrefs.bottom}%`;
+    overlay.style.zoom=String(subtitlePrefs.fontScale);
+    overlay.classList.toggle("ytba-overlay-background",subtitlePrefs.background);
+  }
 
   function buildMarkdown() {
     // Moon Add: export remains available after the temporary local service exits.
@@ -140,6 +182,7 @@
     } else {
       overlay = document.querySelector("#ytba-overlay");
     }
+    applySubtitlePrefs();
     syncSubtitle();
     // Moon End
   }
@@ -164,7 +207,10 @@
     const index = result.segments.findIndex(x => x.start <= now && x.end >= now);
     const item = result.segments[index];
     // Moon Modified: untranslated future segments intentionally render nothing.
-    overlay.innerHTML = item?.zh ? `<div class="en">${escapeHtml(item.en)}</div><div class="zh">${escapeHtml(item.zh)}</div>` : "";
+    if (!subtitlePrefs.visible || !item?.zh) overlay.innerHTML = "";
+    else if (subtitlePrefs.language === "zh") overlay.innerHTML = `<div class="zh">${escapeHtml(item.zh)}</div>`;
+    else if (subtitlePrefs.language === "en") overlay.innerHTML = `<div class="en">${escapeHtml(item.en)}</div>`;
+    else overlay.innerHTML = `<div class="en">${escapeHtml(item.en)}</div><div class="zh">${escapeHtml(item.zh)}</div>`;
     document.querySelectorAll(".ytba-segment.active").forEach(x=>x.classList.remove("active"));
     const active = document.querySelector(`.ytba-segment[data-index="${index}"]`);
     active?.classList.add("active");
@@ -182,6 +228,7 @@
   }
 
   chrome.runtime.onMessage.addListener(message => { if (message.type === "start") start(); if (message.type === "open") ensurePanel(); });
+  chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};applySubtitlePrefs();refreshSubtitleControls();});
   setInterval(watchNavigation, 1000);
   watchNavigation();
 })();
