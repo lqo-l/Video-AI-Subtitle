@@ -19,6 +19,7 @@ from .models import JobView, ProcessedVideo, Segment
 
 
 JOBS: dict[str, JobView] = {}
+CACHE_SCHEMA_VERSION = 2  # Moon Add: invalidate pre-normalization subtitle caches.
 
 
 def video_id_from_url(url: str) -> str:
@@ -38,14 +39,65 @@ def _seconds(value: str) -> float:
     return float(parts[-1]) + int(parts[-2]) * 60 + int(parts[-3]) * 3600
 
 
-def _read_vtt(path: Path) -> list[Segment]:
+def _word_overlap(left: list[str], right: list[str]) -> int:
+    """Return the longest suffix/prefix overlap used by YouTube rolling captions."""
+    # Moon Add
+    limit = min(len(left), len(right))
+    for size in range(limit, 0, -1):
+        if [x.casefold() for x in left[-size:]] == [x.casefold() for x in right[:size]]:
+            return size
+    return 0
+
+
+def _normalize_rolling_captions(captions: list[Segment]) -> list[Segment]:
+    """Collapse rolling VTT cues, then create readable sentence-sized timed segments."""
+    # Moon Begin
+    words: list[tuple[str, float, float]] = []
+    for caption in captions:
+        current = caption.en.split()
+        if not current:
+            continue
+        previous = [item[0] for item in words]
+        overlap = _word_overlap(previous, current)
+        new_words = current[overlap:]
+        if not new_words:
+            continue
+        duration = max(caption.end - caption.start, 0.1)
+        # Timestamp only newly introduced words across the cue. Existing rolling words
+        # keep their first timestamp so repeated VTT windows do not become duplicates.
+        for index, word in enumerate(new_words):
+            estimated_start = caption.start + duration * index / len(new_words)
+            estimated_end = caption.start + duration * (index + 1) / len(new_words)
+            start = max(estimated_start, words[-1][2] if words else caption.start)
+            end = max(estimated_end, start + 0.01)
+            words.append((word, start, end))
+
     result: list[Segment] = []
+    chunk: list[tuple[str, float, float]] = []
+    for index, word in enumerate(words):
+        chunk.append(word)
+        text = " ".join(item[0] for item in chunk)
+        sentence_end = bool(re.search(r"[.!?][\"')\]]?$", word[0]))
+        next_gap = words[index + 1][1] - word[2] if index + 1 < len(words) else 0
+        should_flush = sentence_end or len(chunk) >= 18 or len(text) >= 110 or next_gap >= 1.1
+        if should_flush:
+            result.append(Segment(start=chunk[0][1], end=chunk[-1][2], en=text))
+            chunk = []
+    if chunk:
+        result.append(Segment(start=chunk[0][1], end=chunk[-1][2], en=" ".join(x[0] for x in chunk)))
+    return result
+    # Moon End
+
+
+def _read_vtt(path: Path) -> list[Segment]:
+    raw: list[Segment] = []
     for caption in webvtt.read(str(path)):
         text = _clean_caption(caption.text)
-        if not text or (result and result[-1].en == text):
+        if not text or (raw and raw[-1].en == text):
             continue
-        result.append(Segment(start=_seconds(caption.start), end=_seconds(caption.end), en=text))
-    return result
+        raw.append(Segment(start=_seconds(caption.start), end=_seconds(caption.end), en=text))
+    # Moon Modified: YouTube auto captions are rolling windows, not final subtitle lines.
+    return _normalize_rolling_captions(raw)
 
 
 def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | None]:
@@ -102,7 +154,7 @@ def _transcribe(audio: Path, model_name: str, device_setting: str) -> list[Segme
 async def process_job(job_id: str, url: str) -> None:
     job = JOBS[job_id]
     video_id = video_id_from_url(url)
-    cache_path = CACHE_DIR / f"{video_id}.json"
+    cache_path = CACHE_DIR / f"{video_id}.v{CACHE_SCHEMA_VERSION}.json"
     if cache_path.exists():
         job.state, job.stage, job.progress = "completed", "已从缓存加载", 100
         job.result = ProcessedVideo.model_validate_json(cache_path.read_text(encoding="utf-8"))
