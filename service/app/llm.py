@@ -28,7 +28,7 @@ class LlmClient:
             headers=headers,
             json={"model": model, "instructions": system, "input": user},
         )
-        if response.status_code in (404, 405):
+        if response.status_code in (401, 404, 405):
             response = await self.client.post(
                 f"{base}/chat/completions",
                 headers=headers,
@@ -82,8 +82,27 @@ class LlmClient:
                 if int(x["id"]) in expected_ids
             }
             if set(translated) != expected_ids:
+                # Retry once: LLMs occasionally drop items from bulk JSON output.
                 missing = sorted(expected_ids - set(translated))
-                raise RuntimeError(f"翻译模型漏掉字幕 ID：{missing}")
+                retry_ids = [{"id": i, "en": segments[i].en} for i in missing]
+                retry_payload = {"context_only": context, "translate": retry_ids}
+                retry_text = await self._request(
+                    self.config.translation_model,
+                    "翻译以下英文句子为简体中文。只返回 JSON 数组，每项格式为 {id, zh}，不得添加 Markdown。",
+                    json.dumps(retry_payload, ensure_ascii=False),
+                )
+                retry_match = re.search(r"\[[\s\S]*\]", retry_text)
+                if retry_match:
+                    for x in json.loads(retry_match.group()):
+                        try:
+                            sid = int(x["id"])
+                            if sid in missing:
+                                translated[sid] = str(x["zh"]).strip()
+                        except (KeyError, ValueError):
+                            continue
+                if set(translated) != expected_ids:
+                    still_missing = sorted(expected_ids - set(translated))
+                    raise RuntimeError(f"翻译模型漏掉字幕 ID：{still_missing}")
             for i, item in enumerate(batch):
                 item.zh = translated[offset + i]
             if progress:
