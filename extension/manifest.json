@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube 双语字幕助手",
+  "version": "0.1.0",
+  "description": "本机生成英文视频的中英字幕、摘要和关键点。",
+  "permissions": ["storage", "notifications", "downloads"],
+  "host_permissions": ["http://127.0.0.1:8765/*", "https://www.youtube.com/*"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {"128": "icon128.png"},
+  "action": {"default_popup": "popup.html", "default_title": "双语字幕助手", "default_icon": "icon128.png"},
+  "options_page": "options.html"
+}
