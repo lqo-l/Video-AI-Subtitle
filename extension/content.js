@@ -195,10 +195,14 @@
           updateStatus(`已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`, job.progress);
         }
         if (activeTab === "transcript") renderTab("transcript");
-      if (job.summary_partial && activeTab === "summary") renderTab("summary");
-      // Auto-switch to summary tab when partial content arrives and user is on transcript
-      if (job.summary_partial && !job.result && activeTab === "transcript" && job.translated_segments >= job.total_segments) {
-        // Summary is streaming in, show it
+      if (job.summary_partial) {
+        renderTab("summary");
+        if (activeTab !== "summary") {
+          // Auto-switch to summary tab when streaming begins
+          activeTab = "summary";
+          const root = ensurePanel();
+          root.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("active", x.dataset.tab === "summary"));
+        }
       }
       }
       // Moon End
