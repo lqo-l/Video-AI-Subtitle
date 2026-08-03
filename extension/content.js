@@ -19,6 +19,16 @@
 
   function video() { return document.querySelector("video"); }
 
+  async function ensureService() {
+    // Moon Add: ask the native host to start, then wait until HTTP is ready.
+    const response = await chrome.runtime.sendMessage({type:"ensure-service"});
+    if (!response?.ok) throw new Error(response?.error || "本机启动器不可用，请运行 install-native-host.ps1");
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try { await api("/health"); return; } catch (_) { await new Promise(resolve => setTimeout(resolve, 300)); }
+    }
+    throw new Error("本机服务启动超时");
+  }
+
   function showPrompt() {
     if (document.querySelector("#ytba-prompt") || document.querySelector("#ytba-root")) return;
     const box = document.createElement("div");
@@ -35,15 +45,23 @@
     root = document.createElement("aside");
     root.id = "ytba-root";
     root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><span data-status>准备中</span><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-tabs"><button class="active" data-tab="transcript">字幕</button><button data-tab="summary">摘要</button></div><div class="ytba-body"></div>`;
-    root.querySelector("[data-close]").onclick = () => { root.remove(); document.body.classList.remove("ytba-panel-open"); };
+    root.querySelector("[data-close]").onclick = () => { chrome.runtime.sendMessage({type:"release-service"}); root.remove(); document.body.classList.remove("ytba-panel-open"); };
     root.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => renderTab(button.dataset.tab));
-    root.querySelector("[data-export]").onclick = () => chrome.runtime.sendMessage({type:"download-markdown", jobId:job.id, filename:safeName(result.title)});
+    root.querySelector("[data-export]").onclick = () => chrome.runtime.sendMessage({type:"download-markdown", content:buildMarkdown(), filename:safeName(result.title)});
     document.body.appendChild(root);
     document.body.classList.add("ytba-panel-open");
     return root;
   }
 
   function safeName(name) { return name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 100); }
+
+  function buildMarkdown() {
+    // Moon Add: export remains available after the temporary local service exits.
+    const lines=[`# ${result.title}`,"",`来源：${location.href}`,"","## 摘要","",result.summary,"","## 关键点",""];
+    lines.push(...result.key_points.map(point=>`- ${point}`),"","## 中英字幕","");
+    result.segments.forEach(item=>lines.push(`### ${formatTime(item.start)}`,"",item.en,"",item.zh,""));
+    return lines.join("\n");
+  }
 
   function updateStatus(stage, progress, error) {
     const root = ensurePanel();
@@ -56,9 +74,11 @@
     if (player) { player.pause(); player.currentTime = 0; }
     ensurePanel();
     try {
+      updateStatus("正在启动本机服务", 1);
+      await ensureService();
       job = await api("/jobs", {method:"POST", body:JSON.stringify({url:location.href})});
       poll();
-    } catch (error) { updateStatus("无法启动", 0, error.message); }
+    } catch (error) { chrome.runtime.sendMessage({type:"release-service"}); updateStatus("无法启动", 0, error.message); }
   }
 
   async function poll() {
@@ -76,6 +96,9 @@
         result = job.result;
         setupResult();
         chrome.runtime.sendMessage({type:"notify", message:`《${result.title}》处理完成，请手动播放。`});
+        chrome.runtime.sendMessage({type:"release-service"});
+      } else if (job.state === "failed") {
+        chrome.runtime.sendMessage({type:"release-service"});
       } else if (job.state !== "failed") {
         pollTimer = setTimeout(poll, job.stage.startsWith("翻译中文字幕") ? 750 : 1500);
       }

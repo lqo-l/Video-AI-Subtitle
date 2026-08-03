@@ -24,14 +24,17 @@ Chrome 扩展配合 Windows 本机服务，为英文 YouTube 视频生成中英�
    ```powershell
    Set-ExecutionPolicy -Scope Process Bypass
    .\scripts\install.ps1
-   .\scripts\install.ps1
    ```
 
-   安装脚本会注册当前用户的 Windows 登录自启动任务，并立即在后台启动服务。之后通常无需手动运行 `start.ps1`。
-
 3. Chrome 打开 `chrome://extensions`，启用“开发者模式”，点击“加载已解压的扩展程序”，选择项目中的 `extension` 目录。
-4. 点击扩展图标进入“设置”，填写 Base URL、API Key、翻译模型、摘要模型与 Whisper 模型。
-5. 打开 YouTube 视频，按页面提示开始处理。处理期间视频会暂停并回到开头。
+4. 在扩展卡片复制 32 位扩展 ID，然后运行：
+
+   ```powershell
+   .\scripts\install-native-host.ps1 -ExtensionId "粘贴扩展ID"
+   ```
+
+5. 在 `chrome://extensions` 重新加载扩展。点击扩展图标进入“设置”，填写模型配置。
+6. 打开 YouTube 视频，按页面提示开始处理。点击处理时服务自动启动，任务完成或失败后自动关闭。
 
 推荐初始配置：
 
@@ -51,11 +54,10 @@ Chrome 扩展配合 Windows 本机服务，为英文 YouTube 视频生成中英�
 
 当前为个人使用 MVP。YouTube 登录受限视频及 DRM 视频不保证可处理。
 
-## 后台服务管理
+## 本机服务管理
 
-- 手动启动或查看日志输出：`.\scripts\start.ps1`
-- 启用并立即启动后台服务：`.\scripts\enable-autostart.ps1`
-- 关闭登录自启动：`.\scripts\disable-autostart.ps1`
-- 后台日志目录：`%LOCALAPPDATA%\YouTubeBilingualAssistant`
+- 正常情况：由扩展按需启动和关闭，无需手动操作。
+- 手动调试：`.\scripts\start.ps1`
+- 如果扩展 ID 变化，重新运行 `install-native-host.ps1` 注册新 ID。
 
-Chrome 安全策略不允许网页扩展直接执行任意本地路径，因此项目使用安装时注册的 Windows 登录任务，而不是让扩展保存并运行 `.ps1` 路径。
+Chrome 安全策略不允许网页扩展直接执行任意本地路径，因此安装脚本注册 Chrome 官方 Native Messaging 启动器。启动器仅允许指定扩展 ID 调用。

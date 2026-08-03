@@ -8,3 +8,5 @@ dist/
 pip-install*.log
 .pip-install.pid
 .test-data/
+native-host/*.exe
+native-host/com.moon.youtube_bilingual_assistant.json

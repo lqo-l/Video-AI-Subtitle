@@ -18,7 +18,7 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Write-Warning "未找到 ffmpeg。请执行 winget install Gyan.FFmpeg，之后重新打开终端。"
 }
 
-& (Join-Path $PSScriptRoot "enable-autostart.ps1")
-
-Write-Host "安装完成。本机服务将随 Windows 登录自动在后台启动。" -ForegroundColor Green
+Write-Host "依赖安装完成。" -ForegroundColor Green
+Write-Host "加载 Chrome 扩展后，请复制扩展 ID 并运行："
+Write-Host '.\scripts\install-native-host.ps1 -ExtensionId "你的扩展ID"' -ForegroundColor Cyan
 Write-Host "首次使用 Whisper 时会自动下载所选模型。"
