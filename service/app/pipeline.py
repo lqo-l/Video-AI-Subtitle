@@ -158,65 +158,107 @@ async def process_job(job_id: str, url: str) -> None:
     if cache_path.exists():
         job.state, job.stage, job.progress = "completed", "已从缓存加载", 100
         job.result = ProcessedVideo.model_validate_json(cache_path.read_text(encoding="utf-8"))
-        # Moon Add: cached jobs expose the same completed incremental state.
         job.preview_segments = job.result.segments
         job.translated_segments = len(job.result.segments)
         job.total_segments = len(job.result.segments)
         return
-    temp = WORK_DIR / job_id
-    temp.mkdir(parents=True, exist_ok=True)
+
+    partial_path = CACHE_DIR / f"{video_id}.partial.v{CACHE_SCHEMA_VERSION}.json"
+    segments: list[Segment] = []
+    title: str = video_id
+    duration: float | None = None
+    source: str = ""
+    resume: bool = False
+
+    # Try loading from partial cache for resume
+    if partial_path.exists():
+        try:
+            data = json.loads(partial_path.read_text(encoding="utf-8"))
+            segments = [Segment(**s) for s in data["segments"]]
+            title = data.get("title", video_id)
+            duration = data.get("duration")
+            source = data.get("source", "resume")
+            if all(s.zh for s in segments):
+                # All translated but no final cache -- shouldn't happen, clean up
+                partial_path.unlink(missing_ok=True)
+                segments = []
+            else:
+                resume = True
+        except Exception:
+            segments = []
+
+    if not resume:
+        temp = WORK_DIR / job_id
+        temp.mkdir(parents=True, exist_ok=True)
+        try:
+            job.state, job.stage, job.progress = "running", "读取视频信息与字幕", 8
+            info, extracted, audio = await asyncio.to_thread(_download, url, temp)
+            source = "youtube_subtitles"
+            if not extracted:
+                job.stage, job.progress = "使用本机 Whisper 转写音频", 25
+                config = load_config()
+                extracted = await asyncio.to_thread(_transcribe, audio, config.whisper_model, config.device)
+                source = "whisper"
+            if not extracted:
+                raise RuntimeError("未识别到有效英文语音")
+            segments = extracted
+            title = info.get("title", video_id)
+            duration = info.get("duration")
+            # Save partial state for crash recovery
+            partial = {"title": title, "duration": duration, "source": source,
+                        "segments": [s.model_dump() for s in segments]}
+            partial_path.write_text(json.dumps(partial, ensure_ascii=False, indent=2), encoding="utf-8")
+        finally:
+            shutil.rmtree(temp, ignore_errors=True)
+
+    # Translation phase (shared between normal and resume flows)
+    job.preview_segments = segments
+    job.total_segments = len(segments)
+    job.stage, job.progress = f"翻译中文字幕 0 / {len(segments)}", 55
+
+    def publish_translation(completed: int, total: int) -> None:
+        job.translated_segments = completed
+        job.total_segments = total
+        job.progress = min(88, 55 + int(completed / max(total, 1) * 33))
+        job.stage = f"翻译中文字幕 {completed} / {total}"
+        # Persist after each batch for crash recovery
+        try:
+            partial = json.loads(partial_path.read_text(encoding="utf-8"))
+            partial["segments"] = [s.model_dump() for s in segments]
+            partial_path.write_text(json.dumps(partial, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    config = load_config()
+    client = LlmClient(config)
     try:
-        job.state, job.stage, job.progress = "running", "读取视频信息与字幕", 8
-        info, segments, audio = await asyncio.to_thread(_download, url, temp)
-        source = "youtube_subtitles"
-        if not segments:
-            job.stage, job.progress = "使用本机 Whisper 转写音频", 25
-            config = load_config()
-            segments = await asyncio.to_thread(_transcribe, audio, config.whisper_model, config.device)
-            source = "whisper"
-        if not segments:
-            raise RuntimeError("未识别到有效英文语音")
-        # Moon Begin: make translated batches visible before the full job completes.
-        job.preview_segments = segments
-        job.total_segments = len(segments)
-        job.stage, job.progress = f"翻译中文字幕 0 / {len(segments)}", 55
-
-        def publish_translation(completed: int, total: int) -> None:
-            job.translated_segments = completed
-            job.total_segments = total
-            job.progress = min(88, 55 + int(completed / max(total, 1) * 33))
-            job.stage = f"翻译中文字幕 {completed} / {total}"
-        # Moon End
-
-        config = load_config()
-        client = LlmClient(config)
         try:
             await client.translate(segments, publish_translation)
             job.stage, job.progress = "生成摘要与关键点", 92
-            summary, key_points = await client.summarize(info.get("title", video_id), segments)
-        finally:
-            await client.close()
-        result = ProcessedVideo(
-            video_id=video_id,
-            title=info.get("title", video_id),
-            url=url,
-            duration=info.get("duration"),
-            source=source,
-            segments=segments,
-            summary=summary,
-            key_points=key_points,
-        )
-        cache_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
-        job.result = result
-        job.preview_segments = segments
-        job.translated_segments = len(segments)
-        job.total_segments = len(segments)
-        job.state, job.stage, job.progress = "completed", "处理完成，请手动播放", 100
-    except Exception as exc:
-        job.state, job.stage, job.error = "failed", "处理失败", str(exc)
+            summary, key_points = await client.summarize(title, segments)
+        except Exception as exc:
+            job.state, job.stage, job.error = "failed", "处理失败", str(exc)
+            return
     finally:
-        shutil.rmtree(temp, ignore_errors=True)
+        await client.close()
 
+    result = ProcessedVideo(
+        video_id=video_id,
+        title=title,
+        url=url,
+        duration=duration,
+        source=source,
+        segments=segments,
+        summary=summary,
+        key_points=key_points,
+    )
+    cache_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    partial_path.unlink(missing_ok=True)
+    job.result = result
+    job.preview_segments = segments
+    job.translated_segments = len(segments)
+    job.total_segments = len(segments)
+    job.state, job.stage, job.progress = "completed", "处理完成，请手动播放", 100
 
 def create_job(url: str) -> JobView:
     job_id = uuid.uuid4().hex
