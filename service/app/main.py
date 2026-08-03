@@ -36,6 +36,9 @@ def get_config():
 def put_config(config: ServiceConfig):
     if not re.match(r"^https?://", config.base_url):
         raise HTTPException(400, "Base URL 必须以 http:// 或 https:// 开头")
+    # Moon Add: an empty value means keeping the existing secret.
+    if not config.api_key:
+        config.api_key = load_config().api_key
     save_config(config)
     return PublicConfig(**config.model_dump(exclude={"api_key"}), api_key_configured=bool(config.api_key))
 

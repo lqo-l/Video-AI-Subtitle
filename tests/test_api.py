@@ -30,6 +30,14 @@ def test_health_and_config_redaction(tmp_path, monkeypatch):
     assert public["api_key_configured"] is True
     assert "test-secret" not in client.get("/config").text
 
+    # Moon Add: saving other settings with an empty secret preserves the key.
+    payload["api_key"] = ""
+    payload["translation_model"] = "translation-updated"
+    assert client.put("/config", json=payload).status_code == 200
+    saved = config.load_config()
+    assert saved.api_key == "test-secret"
+    assert saved.translation_model == "translation-updated"
+
 
 def test_start_job_runs_on_event_loop(monkeypatch):
     # Moon Add: regress the missing event loop failure from a synchronous endpoint.
