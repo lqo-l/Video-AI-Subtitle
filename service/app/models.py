@@ -6,10 +6,10 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 class ServiceConfig(BaseModel):
-    base_url: str = "https://ai-gateway.kurogames.com/v1"
+    base_url: str = ""
     api_key: str = ""
     translation_model: str = "deepseek-v4-flash"
-    summary_model: str = "gpt-5.6-sol"
+    summary_model: str = "deepseek-chat"
     whisper_model: str = "small.en"
     device: Literal["auto", "cuda", "cpu"] = "auto"
 

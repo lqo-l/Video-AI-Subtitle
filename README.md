@@ -89,7 +89,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | Base URL | `https://example.com/v1` | OpenAI 兼容接口根地址 |
 | API Key | `你的密钥` | 只保存在本机配置文件 |
 | 翻译模型 | `deepseek-v4-flash` | 默认值，可替换为其他文本模型 |
-| 摘要模型 | `gpt-5.6-sol` | 可与翻译模型不同 |
+| 摘要模型 | `deepseek-chat` | 可与翻译模型不同 |
 | Whisper 模型 | `small.en` | 速度和精度较均衡 |
 | 运行设备 | `auto` | GPU 优先，失败自动降级 CPU |
 
