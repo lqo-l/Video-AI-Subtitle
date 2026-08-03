@@ -18,5 +18,7 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Write-Warning "未找到 ffmpeg。请执行 winget install Gyan.FFmpeg，之后重新打开终端。"
 }
 
-Write-Host "安装完成。运行 scripts\start.ps1 启动服务。" -ForegroundColor Green
+& (Join-Path $PSScriptRoot "enable-autostart.ps1")
+
+Write-Host "安装完成。本机服务将随 Windows 登录自动在后台启动。" -ForegroundColor Green
 Write-Host "首次使用 Whisper 时会自动下载所选模型。"

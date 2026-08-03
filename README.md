@@ -24,8 +24,10 @@ Chrome 扩展配合 Windows 本机服务，为英文 YouTube 视频生成中英�
    ```powershell
    Set-ExecutionPolicy -Scope Process Bypass
    .\scripts\install.ps1
-   .\scripts\start.ps1
+   .\scripts\install.ps1
    ```
+
+   安装脚本会注册当前用户的 Windows 登录自启动任务，并立即在后台启动服务。之后通常无需手动运行 `start.ps1`。
 
 3. Chrome 打开 `chrome://extensions`，启用“开发者模式”，点击“加载已解压的扩展程序”，选择项目中的 `extension` 目录。
 4. 点击扩展图标进入“设置”，填写 Base URL、API Key、翻译模型、摘要模型与 Whisper 模型。
@@ -48,3 +50,12 @@ Chrome 扩展配合 Windows 本机服务，为英文 YouTube 视频生成中英�
 服务只监听 `127.0.0.1:8765`。YouTube 音频在处理时写入临时目录，任务结束后删除。字幕结果保留在本地缓存。API Key 不会返回给扩展，也不会进入 Git。
 
 当前为个人使用 MVP。YouTube 登录受限视频及 DRM 视频不保证可处理。
+
+## 后台服务管理
+
+- 手动启动或查看日志输出：`.\scripts\start.ps1`
+- 启用并立即启动后台服务：`.\scripts\enable-autostart.ps1`
+- 关闭登录自启动：`.\scripts\disable-autostart.ps1`
+- 后台日志目录：`%LOCALAPPDATA%\YouTubeBilingualAssistant`
+
+Chrome 安全策略不允许网页扩展直接执行任意本地路径，因此项目使用安装时注册的 Windows 登录任务，而不是让扩展保存并运行 `.ps1` 路径。
