@@ -9,6 +9,7 @@
   let activeTab = "transcript";
   let playbackReady = false;
   let panelCollapsed = false;
+  let playerResizeObserver = null;
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
 
@@ -110,8 +111,20 @@
     if(!overlay)return;
     overlay.style.display=subtitlePrefs.visible?"block":"none";
     overlay.style.bottom=`${subtitlePrefs.bottom}%`;
-    overlay.style.zoom=String(subtitlePrefs.fontScale);
     overlay.classList.toggle("ytba-overlay-background",subtitlePrefs.background);
+    updateResponsiveSubtitleScale();
+  }
+
+  function updateResponsiveSubtitleScale() {
+    if(!overlay)return;
+    const player=video()?.closest(".html5-video-player");
+    if(!player)return;
+    // Moon Add: 960px player width is the neutral size; clamp for phone-sized
+    // windows and ultrawide/fullscreen displays to keep captions comfortable.
+    const scale=Math.min(1.65,Math.max(.68,player.getBoundingClientRect().width/960));
+    const userScale=subtitlePrefs.fontScale;
+    overlay.style.setProperty("--ytba-en-size",`${(21*scale*userScale).toFixed(1)}px`);
+    overlay.style.setProperty("--ytba-zh-size",`${(24*scale*userScale).toFixed(1)}px`);
   }
 
   function buildMarkdown() {
@@ -199,6 +212,11 @@
       overlay = document.querySelector("#ytba-overlay");
     }
     applySubtitlePrefs();
+    updateResponsiveSubtitleScale();
+    if(!playerResizeObserver){
+      playerResizeObserver=new ResizeObserver(updateResponsiveSubtitleScale);
+      playerResizeObserver.observe(container);
+    }
     syncSubtitle();
     // Moon End
   }
@@ -238,6 +256,7 @@
     lastUrl = location.href;
     const player = video();
     if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);
+    playerResizeObserver?.disconnect(); playerResizeObserver=null;
     clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; activeTab = "transcript"; playbackReady = false; overlay = null;
     document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-fullscreen"); panelCollapsed=false;
     if (location.pathname === "/watch") setTimeout(showPrompt, 1800);
