@@ -3,6 +3,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 internal static class Program
@@ -46,7 +47,7 @@ internal static class Program
         ProcessStartInfo startInfo = new ProcessStartInfo
         {
             FileName = python,
-            Arguments = "-m uvicorn service.app.main:app --host 127.0.0.1 --port 8765",
+            Arguments = "-m uvicorn service.app.main:app --host 127.0.0.1 --port 18765",
             WorkingDirectory = projectRoot,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -60,6 +61,22 @@ internal static class Program
         service.Start();
         service.BeginOutputReadLine();
         service.BeginErrorReadLine();
+
+        // Moon Add: do not report success until the HTTP endpoint is actually healthy.
+        for (int attempt = 0; attempt < 40; attempt++)
+        {
+            if (service.HasExited) throw new InvalidOperationException("本机服务启动失败，请查看 native-service.log");
+            try
+            {
+                using (var client = new System.Net.WebClient())
+                {
+                    string response = client.DownloadString("http://127.0.0.1:18765/health");
+                    if (response.Contains("\"ok\":true")) return;
+                }
+            }
+            catch { Thread.Sleep(250); }
+        }
+        throw new TimeoutException("本机服务启动超时，请查看 native-service.log");
     }
 
     private static void LogLine(object sender, DataReceivedEventArgs args)

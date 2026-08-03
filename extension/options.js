@@ -1,4 +1,4 @@
-const API="http://127.0.0.1:8765";
+const API="http://127.0.0.1:18765";
 const fields=["base_url","translation_model","summary_model","whisper_model","device"];
 // Moon Begin: represent an existing secret without returning it to the extension.
 const KEY_PLACEHOLDER="••••••••";
