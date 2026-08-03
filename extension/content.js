@@ -8,6 +8,7 @@
   let renderedTranslationCount = -1;
   let activeTab = "transcript";
   let playbackReady = false;
+  let panelCollapsed = false;
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
 
@@ -48,13 +49,28 @@
     root = document.createElement("aside");
     root.id = "ytba-root";
     root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><span data-status>准备中</span><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript">字幕</button><button data-tab="summary">摘要</button></div><div class="ytba-body"></div>`;
-    root.querySelector("[data-close]").onclick = () => { chrome.runtime.sendMessage({type:"release-service"}); root.remove(); document.body.classList.remove("ytba-panel-open"); };
+    // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
+    root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
+    root.onclick = event => { if (panelCollapsed && !event.target.closest("button,select")) setPanelCollapsed(false); };
     root.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => renderTab(button.dataset.tab));
     bindSubtitleControls(root);
     root.querySelector("[data-export]").onclick = () => chrome.runtime.sendMessage({type:"download-markdown", content:buildMarkdown(), filename:safeName(result.title)});
     document.body.appendChild(root);
     document.body.classList.add("ytba-panel-open");
+    setPanelCollapsed(panelCollapsed);
     return root;
+  }
+
+  function setPanelCollapsed(collapsed) {
+    panelCollapsed=collapsed;
+    const root=document.querySelector("#ytba-root");
+    root?.classList.toggle("ytba-collapsed",collapsed);
+    document.body.classList.toggle("ytba-panel-collapsed",collapsed);
+  }
+
+  function updateFullscreenLayout() {
+    // Moon Add: the normal 64px YouTube header offset must not survive fullscreen.
+    document.body.classList.toggle("ytba-fullscreen",Boolean(document.fullscreenElement));
   }
 
   function safeName(name) { return name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 100); }
@@ -223,11 +239,13 @@
     const player = video();
     if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);
     clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; activeTab = "transcript"; playbackReady = false; overlay = null;
-    document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open");
+    document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-fullscreen"); panelCollapsed=false;
     if (location.pathname === "/watch") setTimeout(showPrompt, 1800);
   }
 
   chrome.runtime.onMessage.addListener(message => { if (message.type === "start") start(); if (message.type === "open") ensurePanel(); });
+  document.addEventListener("fullscreenchange",updateFullscreenLayout);
+  updateFullscreenLayout();
   chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};applySubtitlePrefs();refreshSubtitleControls();});
   setInterval(watchNavigation, 1000);
   watchNavigation();
