@@ -1,4 +1,4 @@
-(() => {
+(() => { console.log("[YTBA] content.js v3 loaded - spinner + summary streaming");
   const API = "http://127.0.0.1:18765";
   let job = null;
   let result = null;
@@ -24,9 +24,23 @@
 
   function video() { return document.querySelector("video"); }
 
+  async function safeSendMessage(message) {
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return await chrome.runtime.sendMessage(message); }
+      catch (e) {
+        lastError = e;
+        console.log("[YTBA] sendMessage retry", attempt + 1, "/ 3:", e.message || e);
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+    console.error("[YTBA] sendMessage failed after 3 attempts:", lastError);
+    throw new Error("扩展通信失败，请刷新 YouTube 页面后重试 (Ctrl+Shift+R)");
+  }
+
   async function ensureService() {
     // Moon Add: ask the native host to start, then wait until HTTP is ready.
-    const response = await chrome.runtime.sendMessage({type:"ensure-service"});
+    const response = await safeSendMessage({type:"ensure-service"});
     if (!response?.ok) throw new Error(response?.error || "本机启动器不可用，请运行 install-native-host.ps1");
     for (let attempt = 0; attempt < 30; attempt++) {
       try { await api("/health"); return; } catch (_) { await new Promise(resolve => setTimeout(resolve, 300)); }
@@ -55,7 +69,7 @@
     root.onclick = event => { if (panelCollapsed && !event.target.closest("button,select")) setPanelCollapsed(false); };
     root.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => renderTab(button.dataset.tab));
     bindSubtitleControls(root);
-    root.querySelector("[data-export]").onclick = () => chrome.runtime.sendMessage({type:"download-markdown", content:buildMarkdown(), filename:safeName(result.title)});
+    root.querySelector("[data-export]").onclick = () => safeSendMessage({type:"download-markdown", content:buildMarkdown(), filename:safeName(result.title)});
     document.body.appendChild(root);
     document.body.classList.add("ytba-panel-open");
     setPanelCollapsed(panelCollapsed);
@@ -67,6 +81,7 @@
     const root=document.querySelector("#ytba-root");
     root?.classList.toggle("ytba-collapsed",collapsed);
     document.body.classList.toggle("ytba-panel-collapsed",collapsed);
+    window.dispatchEvent(new Event("resize"));
   }
 
   function updateFullscreenLayout() {
@@ -138,7 +153,18 @@
   function updateStatus(stage, progress, error) {
     const root = ensurePanel();
     root.querySelector("[data-status]").textContent = error ? `${stage}: ${error}` : stage;
-    root.querySelector(".ytba-progress > div").style.width = `${progress || 0}%`;
+    const bar = root.querySelector(".ytba-progress > div");
+    const isSummarizing = stage.includes("生成摘要");
+    if (isSummarizing) {
+      bar.style.width = "100%";
+      bar.classList.add("ytba-progress-indeterminate");
+    } else {
+      bar.classList.remove("ytba-progress-indeterminate");
+      bar.style.width = `${progress || 0}%`;
+    }
+    const spinner = root.querySelector(".ytba-spinner");
+    const done = error || progress >= 100;
+    if (spinner) spinner.style.display = done ? "none" : "inline-block";
   }
 
   async function start() {
@@ -146,11 +172,11 @@
     if (player) { player.pause(); player.currentTime = 0; }
     ensurePanel();
     try {
-      updateStatus("正在启动本机服务", 1);
+      updateStatus("正在启动本机服务", 2);
       await ensureService();
       job = await api("/jobs", {method:"POST", body:JSON.stringify({url:location.href})});
       poll();
-    } catch (error) { chrome.runtime.sendMessage({type:"release-service"}); updateStatus("无法启动", 0, error.message); }
+    } catch (error) { safeSendMessage({type:"release-service"}); updateStatus("无法启动", 0, error.message); }
   }
 
   async function poll() {
@@ -169,17 +195,24 @@
           updateStatus(`已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`, job.progress);
         }
         if (activeTab === "transcript") renderTab("transcript");
+      if (job.summary_partial && activeTab === "summary") renderTab("summary");
+      // Auto-switch to summary tab when partial content arrives and user is on transcript
+      if (job.summary_partial && !job.result && activeTab === "transcript" && job.translated_segments >= job.total_segments) {
+        // Summary is streaming in, show it
+      }
       }
       // Moon End
       if (job.state === "completed") {
         result = job.result;
         setupResult();
-        chrome.runtime.sendMessage({type:"notify", message:`《${result.title}》处理完成，请手动播放。`});
-        chrome.runtime.sendMessage({type:"release-service"});
+        const root = ensurePanel();
+        root.classList.add("ytba-completed");
+        safeSendMessage({type:"notify", message:`《${result.title}》处理完成，请手动播放。`});
+        safeSendMessage({type:"release-service"});
       } else if (job.state === "failed") {
-        chrome.runtime.sendMessage({type:"release-service"});
+        safeSendMessage({type:"release-service"});
       } else if (job.state !== "failed") {
-        pollTimer = setTimeout(poll, job.stage.startsWith("翻译中文字幕") ? 750 : 1500);
+        const fastPoll = job.stage.startsWith("翻译中文字幕") || job.stage.includes("生成摘要"); pollTimer = setTimeout(poll, fastPoll ? 750 : 1500);
       }
     } catch (error) { updateStatus("连接中断", 0, error.message); }
   }

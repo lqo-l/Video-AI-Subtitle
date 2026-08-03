@@ -233,10 +233,13 @@ async def process_job(job_id: str, url: str) -> None:
     client = LlmClient(config)
     try:
         try:
-            job.stage = "并行翻译与摘要生成"
+            job.stage = f"翻译中文字幕 0 / {len(segments)}"
             translate_task = asyncio.create_task(client.translate(segments, publish_translation))
-            summary_task = asyncio.create_task(client.summarize(title, segments))
+            def on_summary_chunk(chunk: str) -> None:
+                job.summary_partial = chunk
+            summary_task = asyncio.create_task(client.summarize(title, segments, on_summary_chunk))
             await translate_task
+            job.stage = "生成摘要中…"
             summary, key_points = await summary_task
         except Exception as exc:
             job.state, job.stage, job.error = "failed", "处理失败", str(exc)

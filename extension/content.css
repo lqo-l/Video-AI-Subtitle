@@ -8,7 +8,15 @@
 .ytba-button { color: #fff; background: #2867d6; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
 .ytba-button.secondary { background: #343945; }
 .ytba-status { padding: 12px 14px; border-bottom: 1px solid #333842; }
+.ytba-status-row { display: flex; align-items: center; gap: 8px; }
+.ytba-spinner { display: none; width: 22px; height: 22px; border: 3px solid #333842; border-top-color: #5b9aff; border-radius: 50%; animation: ytba-spin .6s linear infinite; box-shadow: 0 0 8px rgba(75,140,255,.35); }
+@keyframes ytba-spin { to { transform: rotate(360deg); } }
+.ytba-progress-indeterminate { width: 100% !important; animation: ytba-progress-slide 1.8s ease-in-out infinite; border-radius: 9px; }
+@keyframes ytba-progress-slide { 0% { margin-left: 0; width: 30%; } 50% { margin-left: 35%; width: 30%; } 100% { margin-left: 70%; width: 30%; } }
 .ytba-controls { padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid #333842; }
+.ytba-completed .ytba-status { background: linear-gradient(135deg, #1a3a2e, #13271c); }
+.ytba-completed .ytba-progress > div { background: #34d399; }
+.ytba-completed .ytba-spinner { display: none !important; }
 .ytba-control { color: #e8ebf0; background: #343945; border: 1px solid #4a5160; border-radius: 5px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
 .ytba-control.active { background: #2867d6; border-color: #4b8cff; }
 .ytba-control select { color: inherit; background: transparent; border: 0; outline: 0; font-size: inherit; }
@@ -29,8 +37,10 @@
 #ytba-overlay.ytba-overlay-background { background: rgba(0,0,0,.58); border-radius: 8px; padding: 8px 12px; }
 #ytba-prompt { position: fixed; z-index: 2147483641; right: 24px; top: 84px; width: 330px; background: #181b22; color: #fff; padding: 16px; border: 1px solid #3b4350; border-radius: 10px; box-shadow: 0 12px 35px #0009; }
 #ytba-prompt .actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
-body.ytba-panel-open #page-manager { margin-right: 390px; }
-body.ytba-panel-collapsed #page-manager, body.ytba-fullscreen #page-manager { margin-right: 0; }
+body.ytba-panel-open #page-manager { margin-right: 390px; transition: margin-right .25s ease; }
+body.ytba-panel-open #columns { margin-right: 0; }
+body.ytba-panel-collapsed #page-manager, body.ytba-fullscreen #page-manager { margin-right: 0; transition: margin-right .25s ease; }
+body.ytba-panel-collapsed #columns, body.ytba-fullscreen #columns { margin-right: 0; }
 body.ytba-fullscreen #ytba-root { top: 0; height: 100vh; }
 body.ytba-fullscreen #ytba-root.ytba-collapsed { top: 72px; height: 116px; }
 body:has(.html5-video-player.ytp-fullscreen) #ytba-root { top: 0; height: 100vh; }

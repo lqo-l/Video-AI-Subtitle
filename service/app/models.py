@@ -56,3 +56,4 @@ class JobView(BaseModel):
     preview_segments: list[Segment] = Field(default_factory=list)
     error: str | None = None
     result: ProcessedVideo | None = None
+    summary_partial: str = ""

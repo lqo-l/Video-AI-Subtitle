@@ -53,11 +53,40 @@ class LlmClient:
             raise RuntimeError("模型返回中未找到文本")
         return "\n".join(parts)
 
+    async def _stream_summarize(self, model: str, system: str, user: str, on_chunk):
+        headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
+        base = self.config.base_url.rstrip("/")
+        accumulated = []
+        async with self.client.stream(
+            "POST", f"{base}/chat/completions",
+            headers=headers,
+            json={"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.2, "stream": True},
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    data = line[6:]
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        delta = chunk["choices"][0].get("delta", {}).get("content", "")
+                        if delta:
+                            accumulated.append(delta)
+                            on_chunk("".join(accumulated))
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+        return "".join(accumulated)
+
     async def translate(self, segments: list[Segment], progress=None) -> None:
         batch_size = 20  # Moon Modified: expose the first playable translated section sooner.
         context_size = 5  # Moon Add: retain terminology and references across batch boundaries.
         for offset in range(0, len(segments), batch_size):
             batch = segments[offset : offset + batch_size]
+            if all(item.zh for item in batch):
+                if progress:
+                    progress(offset + len(batch), len(segments))
+                continue
             # Moon Begin: previous translations are context-only; the model must not output them.
             context_start = max(0, offset - context_size)
             context = [
@@ -110,13 +139,27 @@ class LlmClient:
                 completed = min(offset + len(batch), len(segments))
                 progress(completed, len(segments))
 
-    async def summarize(self, title: str, segments: list[Segment]) -> tuple[str, list[str]]:
-        transcript = "\n".join(f"[{s.start:.0f}s] {s.en} / {s.zh}" for s in segments)
-        text = await self._request(
-            self.config.summary_model,
-            "总结视频内容。只返回 JSON 对象：summary 为 2-4 段中文 Markdown 摘要，key_points 为 5-12 条中文要点字符串。不得添加代码围栏。",
-            f"标题：{title}\n\n字幕：\n{transcript}",
-        )
+    async def summarize(self, title: str, segments: list[Segment], on_stream=None) -> tuple[str, list[str]]:
+        lines = []
+        for s in segments:
+            ts = f"[{s.start:.0f}s]"
+            lines.append(f"{ts} {s.en} / {s.zh}" if s.zh else f"{ts} {s.en}")
+        transcript = "\n".join(lines)
+        prompt = "总结视频内容。只返回 JSON 对象：summary 为 2-4 段中文 Markdown 摘要，key_points 为 5-12 条中文要点字符串。不得添加代码围栏。"
+        user_msg = f"标题：{title}\n\n字幕：\n{transcript}"
+        if on_stream:
+            text = await self._stream_summarize(
+                self.config.summary_model,
+                prompt,
+                user_msg,
+                lambda chunk: on_stream(chunk),
+            )
+        else:
+            text = await self._request(
+                self.config.summary_model,
+                prompt,
+                user_msg,
+            )
         match = re.search(r"\{[\s\S]*\}", text)
         if not match:
             return text.strip(), []

@@ -12,6 +12,20 @@ from .pipeline import JOBS, create_job
 
 
 app = FastAPI(title="YouTube Bilingual Assistant", version="0.1.0")
+
+
+@app.on_event("startup")
+async def _cleanup_stale_port():
+    import subprocess
+    try:
+        subprocess.run(
+            """for /f "tokens=5" %a in ('netstat -ano ^| findstr :18765 ^| findstr LISTENING') do taskkill /F /PID %a 2>nul""",
+            shell=True, capture_output=True, timeout=5
+        )
+    except Exception:
+        pass
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://www.youtube.com", "https://youtube.com"],
