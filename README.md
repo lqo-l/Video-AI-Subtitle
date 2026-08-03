@@ -9,6 +9,7 @@ Chrome 扩展配合 Windows 本机服务，为英文 YouTube 视频生成中英�
 - 完整处理后再播放，避免字幕延迟。
 - 视频内中英双语字幕、右侧可跳转字幕面板、摘要与关键点。
 - 翻译阶段显示已完成数量和百分比，并逐批在字幕面板展示已翻译内容。
+- 第一批翻译完成后即可手动播放；未翻译时间段暂不显示，后续字幕完成后无缝加入时间轴。
 - 自动消除 YouTube 滚动字幕的重复词，并按句子、停顿和长度重新切分时间轴。
 - 翻译模型和总结模型可分别配置，兼容 OpenAI Responses API 和 Chat Completions API。
 - 结果缓存在 `%LOCALAPPDATA%\YouTubeBilingualAssistant\cache`，API Key 仅保存在本机配置文件。

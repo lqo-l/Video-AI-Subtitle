@@ -54,7 +54,7 @@ class LlmClient:
         return "\n".join(parts)
 
     async def translate(self, segments: list[Segment], progress=None) -> None:
-        batch_size = 40
+        batch_size = 20  # Moon Modified: expose the first playable translated section sooner.
         for offset in range(0, len(segments), batch_size):
             batch = segments[offset : offset + batch_size]
             payload = [{"id": offset + i, "text": item.en} for i, item in enumerate(batch)]

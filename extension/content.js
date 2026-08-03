@@ -7,6 +7,7 @@
   let pollTimer = null;
   let renderedTranslationCount = -1;
   let activeTab = "transcript";
+  let playbackReady = false;
 
   const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
   const formatTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -84,11 +85,18 @@
   async function poll() {
     try {
       job = await api(`/jobs/${job.id}`);
-      updateStatus(job.stage, job.progress, job.error);
+      const liveStage = job.translated_segments > 0 && job.state === "running"
+        ? `已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`
+        : job.stage;
+      updateStatus(liveStage, job.progress, job.error);
       // Moon Begin: render each completed translation batch immediately.
       if (job.preview_segments?.length && job.translated_segments !== renderedTranslationCount) {
         renderedTranslationCount = job.translated_segments;
         result = {segments: job.preview_segments, summary: "", key_points: []};
+        if (job.translated_segments > 0) {
+          setupPlayback();
+          updateStatus(`已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`, job.progress);
+        }
         if (activeTab === "transcript") renderTab("transcript");
       }
       // Moon End
@@ -106,15 +114,30 @@
   }
 
   function setupResult() {
-    const player = video();
-    if (player) { player.pause(); player.currentTime = 0; player.addEventListener("timeupdate", syncSubtitle); }
-    const container = player?.parentElement;
-    if (container && !document.querySelector("#ytba-overlay")) {
-      overlay = document.createElement("div"); overlay.id = "ytba-overlay"; container.appendChild(overlay);
-    }
+    setupPlayback();
     const root = ensurePanel();
     root.querySelector("[data-export]").disabled = false;
     renderTab("transcript");
+  }
+
+  function setupPlayback() {
+    // Moon Begin: translated batches become playable without waiting for the full job.
+    const player = video();
+    if (!player) return;
+    if (!playbackReady) {
+      player.addEventListener("timeupdate", syncSubtitle);
+      playbackReady = true;
+    }
+    const container = player.parentElement;
+    if (container && !document.querySelector("#ytba-overlay")) {
+      overlay = document.createElement("div");
+      overlay.id = "ytba-overlay";
+      container.appendChild(overlay);
+    } else {
+      overlay = document.querySelector("#ytba-overlay");
+    }
+    syncSubtitle();
+    // Moon End
   }
 
   function renderTab(tab) {
@@ -136,7 +159,8 @@
     const now = video().currentTime;
     const index = result.segments.findIndex(x => x.start <= now && x.end >= now);
     const item = result.segments[index];
-    overlay.innerHTML = item ? `<div class="en">${escapeHtml(item.en)}</div><div class="zh">${escapeHtml(item.zh)}</div>` : "";
+    // Moon Modified: untranslated future segments intentionally render nothing.
+    overlay.innerHTML = item?.zh ? `<div class="en">${escapeHtml(item.en)}</div><div class="zh">${escapeHtml(item.zh)}</div>` : "";
     document.querySelectorAll(".ytba-segment.active").forEach(x=>x.classList.remove("active"));
     const active = document.querySelector(`.ytba-segment[data-index="${index}"]`);
     active?.classList.add("active");
@@ -146,7 +170,9 @@
   function watchNavigation() {
     if (location.href === lastUrl) return;
     lastUrl = location.href;
-    clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; activeTab = "transcript";
+    const player = video();
+    if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);
+    clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; activeTab = "transcript"; playbackReady = false; overlay = null;
     document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open");
     if (location.pathname === "/watch") setTimeout(showPrompt, 1800);
   }

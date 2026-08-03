@@ -25,7 +25,7 @@ def test_translation_reports_each_completed_batch(monkeypatch):
             await client.close()
 
     asyncio.run(run())
-    assert updates == [(40, 45), (45, 45)]
+    assert updates == [(20, 45), (40, 45), (45, 45)]
     assert segments[39].zh == "译文 39"
     assert segments[44].zh == "译文 44"
     # Moon End
