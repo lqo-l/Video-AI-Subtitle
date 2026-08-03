@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
-from .config import load_config, save_config
+from .config import CACHE_DIR, ensure_dirs, load_config, save_config
 from .models import JobView, PublicConfig, ServiceConfig, VideoRequest
 from .pipeline import JOBS, create_job
 
@@ -24,6 +24,18 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"ok": True, "version": app.version}
+
+
+@app.delete("/cache")
+def clear_cache():
+    # Moon Add: remove generated video results without touching API settings.
+    ensure_dirs()
+    removed = 0
+    for path in CACHE_DIR.glob("*.json"):
+        if path.is_file():
+            path.unlink()
+            removed += 1
+    return {"ok": True, "removed": removed}
 
 
 @app.get("/config", response_model=PublicConfig)

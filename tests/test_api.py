@@ -62,3 +62,22 @@ def test_start_job_runs_on_event_loop(monkeypatch):
     )
     assert response.status_code == 200
     assert captured["loop_was_running"] is True
+
+
+def test_clear_cache_preserves_config(tmp_path, monkeypatch):
+    # Moon Add: cache cleanup must never remove the API configuration.
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    (cache_dir / "video-a.v2.json").write_text("{}", encoding="utf-8")
+    (cache_dir / "video-b.v2.json").write_text("{}", encoding="utf-8")
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"api_key":"keep-me"}', encoding="utf-8")
+    monkeypatch.setattr(main, "CACHE_DIR", cache_dir)
+    monkeypatch.setattr(main, "ensure_dirs", lambda: None)
+
+    response = TestClient(app).delete("/cache")
+
+    assert response.status_code == 200
+    assert response.json()["removed"] == 2
+    assert list(cache_dir.glob("*.json")) == []
+    assert config_path.exists()

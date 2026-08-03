@@ -15,6 +15,7 @@ Chrome 扩展配合 Windows 本机服务，为英文 YouTube 视频生成中英�
 - 翻译模型和总结模型可分别配置，兼容 OpenAI Responses API 和 Chat Completions API。
 - 结果缓存在 `%LOCALAPPDATA%\YouTubeBilingualAssistant\cache`，API Key 仅保存在本机配置文件。
 - 一键导出 Markdown 文档。
+- 扩展弹窗可一键清理全部字幕缓存，不影响 API Key 和模型设置。
 
 ## 安装
 
