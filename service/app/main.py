@@ -41,7 +41,7 @@ def put_config(config: ServiceConfig):
 
 
 @app.post("/jobs", response_model=JobView)
-def start_job(request: VideoRequest):
+async def start_job(request: VideoRequest):  # Moon Modified: keep task creation on the server event loop.
     if "youtube.com" not in str(request.url) and "youtu.be" not in str(request.url):
         raise HTTPException(400, "仅支持 YouTube 视频链接")
     return create_job(str(request.url))
@@ -67,4 +67,3 @@ def export_markdown(job_id: str):
         minutes, seconds = divmod(int(item.start), 60)
         lines.extend([f"### {minutes:02d}:{seconds:02d}", "", item.en, "", item.zh, ""])
     return "\n".join(lines)
-
