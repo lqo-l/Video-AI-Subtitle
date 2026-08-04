@@ -1,9 +1,13 @@
 #ytba-root { position: fixed; top: 64px; right: 0; width: 390px; height: calc(100vh - 64px); z-index: 2147483640; background: #111318; color: #f2f4f8; border-left: 1px solid #333842; box-shadow: -8px 0 24px #0008; font: 14px/1.5 Arial, sans-serif; display: flex; flex-direction: column; transform: translate3d(0,0,0); transition: transform .34s cubic-bezier(.22,.8,.25,1), box-shadow .34s ease; will-change: transform; }
 /* Moon Begin: slide the fixed-width panel and page content on one animation track. */
-#ytba-root.ytba-collapsed { transform: translate3d(348px,0,0); box-shadow: -3px 0 12px #0005; }
+#ytba-root.ytba-collapsed { transform: translate3d(346px,0,0); background: transparent; border-left-color: transparent; box-shadow: none; pointer-events: none; }
 #ytba-root > * { transition: opacity .18s ease .08s; }
-#ytba-root.ytba-collapsed > * { opacity: 0; pointer-events: none; transition-delay: 0s; }
-#ytba-root.ytba-collapsed::after { content: "字幕助手  ›"; position: absolute; left: 0; top: 46px; display: flex; width: 42px; height: 116px; align-items: center; justify-content: center; color: #fff; background: #2867d6; border-radius: 8px 0 0 8px; writing-mode: vertical-rl; letter-spacing: 2px; font-weight: 600; cursor: pointer; }
+#ytba-root.ytba-collapsed > *:not(.ytba-edge-handle) { opacity: 0; pointer-events: none; transition-delay: 0s; }
+.ytba-edge-handle { display: none; }
+#ytba-root.ytba-collapsed .ytba-edge-handle { position: absolute; left: 0; top: 48px; display: flex; width: 44px; height: 88px; padding: 0; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #fff; background: linear-gradient(155deg,#6d5cff 0%,#3478f6 48%,#1e63d7 100%); border: 1px solid rgba(190,211,255,.42); border-right: 0; border-radius: 14px 0 0 14px; box-shadow: -5px 8px 22px rgba(31,76,180,.3), inset 0 1px 0 rgba(255,255,255,.2); opacity: 1; pointer-events: auto; cursor: pointer; transition: transform .2s ease, filter .2s ease, box-shadow .2s ease; }
+#ytba-root.ytba-collapsed .ytba-edge-handle:hover { transform: translateX(-4px); filter: brightness(1.08); box-shadow: -8px 9px 26px rgba(31,76,180,.4), inset 0 1px 0 rgba(255,255,255,.25); }
+.ytba-edge-mark { display: grid; width: 30px; height: 30px; place-items: center; font-size: 18px; line-height: 1; font-weight: 750; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.2); border-radius: 9px; text-shadow: 0 1px 5px rgba(15,34,90,.5); }
+.ytba-edge-handle i { font: 22px/16px Arial,sans-serif; opacity: .9; }
 /* Moon End */
 #ytba-root * { box-sizing: border-box; }
 .ytba-head { padding: 12px 14px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333842; }
