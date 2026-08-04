@@ -100,6 +100,10 @@ Set-ExecutionPolicy -Scope Process Bypass
 - Base URL 必须包含 `/v1`（如 `https://api.deepseek.com/v1`）。
 - 确认 API Key 有效且额度充足。
 
+**模型网关返回 502 / 503**
+- 服务会自动退避重试；若 Responses 路由持续失败，会切换到 Chat Completions 并在后续批次复用该路由。
+- 仍然失败时可稍后点击侧栏 **↻ 重试**，已完成的字幕和摘要不会重新处理。
+
 **设置页保存失败（Failed to fetch）**
 - 在 `chrome://extensions` 重载扩展后重试。
 

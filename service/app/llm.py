@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
@@ -12,9 +13,33 @@ class LlmClient:
     def __init__(self, config: ServiceConfig):
         self.config = config
         self.client = httpx.AsyncClient(timeout=180)
+        self._prefer_chat = False  # Moon Add: remember a gateway's working compatibility route.
 
     async def close(self) -> None:
         await self.client.aclose()
+
+    async def _post_with_retry(self, url: str, **kwargs) -> httpx.Response:
+        """Retry temporary gateway failures without repeating successful requests."""
+        # Moon Begin
+        transient_statuses = {408, 429, 500, 502, 503, 504}
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                response = await self.client.post(url, **kwargs)
+                if response.status_code not in transient_statuses or attempt == 2:
+                    return response
+                retry_after = response.headers.get("Retry-After", "")
+                delay = float(retry_after) if retry_after.replace(".", "", 1).isdigit() else 2**attempt
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_error = exc
+                if attempt == 2:
+                    raise
+                delay = 2**attempt
+            await asyncio.sleep(min(delay, 10))
+        if last_error:
+            raise last_error
+        raise RuntimeError("模型请求重试失败")
+        # Moon End
 
     async def _request(self, model: str, system: str, user: str) -> str:
         if not self.config.api_key:
@@ -24,14 +49,17 @@ class LlmClient:
         headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
         base = self.config.base_url.rstrip("/")
 
-        # Prefer the Responses API used by the configured gateway; retain chat compatibility.
-        response = await self.client.post(
-            f"{base}/responses",
-            headers=headers,
-            json={"model": model, "instructions": system, "input": user},
-        )
-        if response.status_code in (404, 405):
-            response = await self.client.post(
+        # Moon Begin: retry a flaky Responses route, then fall back to Chat Completions.
+        # Once Chat succeeds, use it directly for later batches in the same job.
+        response = None
+        if not self._prefer_chat:
+            response = await self._post_with_retry(
+                f"{base}/responses",
+                headers=headers,
+                json={"model": model, "instructions": system, "input": user},
+            )
+        if response is None or response.status_code in (404, 405, 408, 429, 500, 501, 502, 503, 504):
+            response = await self._post_with_retry(
                 f"{base}/chat/completions",
                 headers=headers,
                 json={
@@ -40,6 +68,9 @@ class LlmClient:
                     "temperature": 0.2,
                 },
             )
+            if response.is_success:
+                self._prefer_chat = True
+        # Moon End
         response.raise_for_status()
         data = response.json()
         if "choices" in data:
