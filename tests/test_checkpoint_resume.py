@@ -45,6 +45,7 @@ def test_resume_uses_extraction_and_summary_checkpoint(tmp_path, monkeypatch):
             pass
 
         async def translate(self, segments, progress):
+            observed["state_during_translation"] = pipeline.JOBS["resume-job"].state
             observed["translation_before"] = [segment.zh for segment in segments]
             segments[1].zh = "二"
             progress(2, 2)
@@ -73,6 +74,7 @@ def test_resume_uses_extraction_and_summary_checkpoint(tmp_path, monkeypatch):
     )
 
     job = pipeline.JOBS.pop("resume-job")
+    assert observed["state_during_translation"] == "running"
     assert observed["translation_before"] == ["一", ""]
     assert observed["resume_from"] == "## 内容摘要\n已经生成"
     assert job.result.segments[0].zh == "一"

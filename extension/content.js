@@ -98,7 +98,7 @@
     const transcript=root.querySelector('[data-tab="transcript"]');
     const summary=root.querySelector('[data-tab="summary"]');
     transcript?.classList.toggle("completed",transcriptComplete);
-    transcript?.classList.toggle("processing",Boolean(job&&job.state==="running"&&!transcriptComplete));
+    transcript?.classList.toggle("processing",Boolean(job&&["queued","running"].includes(job.state)&&!transcriptComplete));
     summary?.classList.toggle("completed",summaryComplete);
     summary?.classList.toggle("processing",job?.summary_state==="running");
     summary?.classList.toggle("failed",job?.summary_state==="failed");

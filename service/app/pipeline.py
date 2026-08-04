@@ -237,6 +237,8 @@ async def process_job(job_id: str, url: str) -> None:
             shutil.rmtree(temp, ignore_errors=True)
 
     # Translation phase (shared between normal and resume flows)
+    # Moon Add: resumed jobs bypass extraction, so explicitly leave the queued state.
+    job.state = "running"
     job.preview_segments = segments
     job.total_segments = len(segments)
     job.stage, job.progress = f"翻译中文字幕 0 / {len(segments)}", 55
