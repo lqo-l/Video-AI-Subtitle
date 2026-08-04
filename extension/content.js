@@ -14,6 +14,7 @@
   let summaryAutoOpened = false;
   let transcriptComplete = false;
   let summaryComplete = false;
+  let layoutAnimationFrame = 0;
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
 
@@ -67,11 +68,12 @@
     if (root) return root;
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-retry title="从上次缓存继续">↻ 重试</button><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary ytba-collapse" data-close title="收缩侧栏">&gt;</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
     // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
     root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
     root.onclick = event => { if (panelCollapsed && !event.target.closest("button,select")) setPanelCollapsed(false); };
     root.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => renderTab(button.dataset.tab));
+    root.querySelector("[data-retry]").onclick = retryFromCheckpoint;
     bindSubtitleControls(root);
     root.querySelector("[data-export]").onclick = () => safeSendMessage({type:"download-markdown", content:buildMarkdown(), filename:safeName(result.title)});
     document.body.appendChild(root);
@@ -107,7 +109,15 @@
     const root=document.querySelector("#ytba-root");
     root?.classList.toggle("ytba-collapsed",collapsed);
     document.body.classList.toggle("ytba-panel-collapsed",collapsed);
-    window.dispatchEvent(new Event("resize"));
+    // Moon Add: keep YouTube's player layout in lockstep with the CSS transition.
+    cancelAnimationFrame(layoutAnimationFrame);
+    const started=performance.now();
+    const refreshLayout=now=>{
+      window.dispatchEvent(new Event("resize"));
+      updateResponsiveSubtitleScale();
+      if(now-started<380)layoutAnimationFrame=requestAnimationFrame(refreshLayout);
+    };
+    layoutAnimationFrame=requestAnimationFrame(refreshLayout);
   }
 
   function updateFullscreenLayout() {
@@ -213,6 +223,31 @@
       job = await api("/jobs", {method:"POST", body:JSON.stringify({url:location.href})});
       poll();
     } catch (error) { safeSendMessage({type:"release-service"}); updateStatus("无法启动", 0, error.message); }
+  }
+
+  async function retryFromCheckpoint() {
+    // Moon Add: terminate a stale native session, then create a job that resumes its checkpoint.
+    clearTimeout(pollTimer);
+    const button=document.querySelector("#ytba-root [data-retry]");
+    if(button)button.disabled=true;
+    updateStatus("正在读取上次进度…",2);
+    try {
+      await safeSendMessage({type:"release-service"});
+      await new Promise(resolve=>setTimeout(resolve,350));
+      job=null;
+      renderedTranslationCount=-1;
+      renderedSummary="";
+      summaryAutoOpened=false;
+      transcriptComplete=false;
+      summaryComplete=false;
+      await ensureService();
+      job=await api("/jobs",{method:"POST",body:JSON.stringify({url:location.href})});
+      poll();
+    } catch(error) {
+      updateStatus("重试失败",0,error.message);
+    } finally {
+      if(button)button.disabled=false;
+    }
   }
 
   async function poll() {
@@ -337,10 +372,11 @@
 
   function watchNavigation() {
     if (location.href === lastUrl) return;
+    if(lastUrl&&job?.state==="running")safeSendMessage({type:"release-service"}).catch(()=>{});
     lastUrl = location.href;
     const player = video();
     if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);
-    playerResizeObserver?.disconnect(); playerResizeObserver=null;
+    playerResizeObserver?.disconnect(); playerResizeObserver=null; cancelAnimationFrame(layoutAnimationFrame); layoutAnimationFrame=0;
     clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; renderedSummary = ""; summaryAutoOpened = false; transcriptComplete = false; summaryComplete = false; activeTab = "transcript"; playbackReady = false; overlay = null;
     document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-fullscreen"); panelCollapsed=false;
     if (location.pathname === "/watch") setTimeout(showPrompt, 1800);

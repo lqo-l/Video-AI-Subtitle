@@ -1,12 +1,17 @@
-#ytba-root { position: fixed; top: 64px; right: 0; width: 390px; height: calc(100vh - 64px); z-index: 2147483640; background: #111318; color: #f2f4f8; border-left: 1px solid #333842; box-shadow: -8px 0 24px #0008; font: 14px/1.5 Arial, sans-serif; display: flex; flex-direction: column; }
-#ytba-root.ytba-collapsed { top: 110px; width: 42px; height: 116px; border-radius: 8px 0 0 8px; overflow: hidden; cursor: pointer; }
-#ytba-root.ytba-collapsed > * { display: none; }
-#ytba-root.ytba-collapsed::after { content: "字幕助手  ›"; display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; color: #fff; background: #2867d6; writing-mode: vertical-rl; letter-spacing: 2px; font-weight: 600; }
+#ytba-root { position: fixed; top: 64px; right: 0; width: 390px; height: calc(100vh - 64px); z-index: 2147483640; background: #111318; color: #f2f4f8; border-left: 1px solid #333842; box-shadow: -8px 0 24px #0008; font: 14px/1.5 Arial, sans-serif; display: flex; flex-direction: column; transform: translate3d(0,0,0); transition: transform .34s cubic-bezier(.22,.8,.25,1), box-shadow .34s ease; will-change: transform; }
+/* Moon Begin: slide the fixed-width panel and page content on one animation track. */
+#ytba-root.ytba-collapsed { transform: translate3d(348px,0,0); box-shadow: -3px 0 12px #0005; }
+#ytba-root > * { transition: opacity .18s ease .08s; }
+#ytba-root.ytba-collapsed > * { opacity: 0; pointer-events: none; transition-delay: 0s; }
+#ytba-root.ytba-collapsed::after { content: "字幕助手  ›"; position: absolute; left: 0; top: 46px; display: flex; width: 42px; height: 116px; align-items: center; justify-content: center; color: #fff; background: #2867d6; border-radius: 8px 0 0 8px; writing-mode: vertical-rl; letter-spacing: 2px; font-weight: 600; cursor: pointer; }
+/* Moon End */
 #ytba-root * { box-sizing: border-box; }
 .ytba-head { padding: 12px 14px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333842; }
 .ytba-head strong { flex: 1; }
 .ytba-button { color: #fff; background: #2867d6; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
 .ytba-button.secondary { background: #343945; }
+.ytba-button:disabled { opacity:.5; cursor:wait; }
+.ytba-collapse { min-width:30px; font-size:18px; line-height:18px; padding-left:8px; padding-right:8px; }
 .ytba-status { padding: 12px 14px; border-bottom: 1px solid #333842; }
 .ytba-status-row { display: flex; align-items: center; gap: 8px; }
 .ytba-pulse { display: flex; align-items: center; justify-content: center; gap: 2px; width: 28px; height: 24px; padding: 4px 5px; border-radius: 9px; background: linear-gradient(145deg, rgba(55,120,255,.28), rgba(126,76,255,.2)); box-shadow: inset 0 0 0 1px rgba(130,170,255,.22), 0 4px 14px rgba(50,95,220,.2); }
@@ -64,12 +69,12 @@
 #ytba-overlay.ytba-overlay-background { background: rgba(0,0,0,.58); border-radius: 8px; padding: 8px 12px; }
 #ytba-prompt { position: fixed; z-index: 2147483641; right: 24px; top: 84px; width: 330px; background: #181b22; color: #fff; padding: 16px; border: 1px solid #3b4350; border-radius: 10px; box-shadow: 0 12px 35px #0009; }
 #ytba-prompt .actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
-body.ytba-panel-open #page-manager { margin-right: 390px; transition: margin-right .25s ease; }
+body.ytba-panel-open #page-manager { margin-right: 390px; transition: margin-right .34s cubic-bezier(.22,.8,.25,1); will-change: margin-right; }
 body.ytba-panel-open #columns { margin-right: 0; }
-body.ytba-panel-collapsed #page-manager, body.ytba-fullscreen #page-manager { margin-right: 0; transition: margin-right .25s ease; }
+body.ytba-panel-collapsed #page-manager, body.ytba-fullscreen #page-manager { margin-right: 0; }
 body.ytba-panel-collapsed #columns, body.ytba-fullscreen #columns { margin-right: 0; }
 body.ytba-fullscreen #ytba-root { top: 0; height: 100vh; }
-body.ytba-fullscreen #ytba-root.ytba-collapsed { top: 72px; height: 116px; }
+body.ytba-fullscreen #ytba-root.ytba-collapsed { top: 0; height: 100vh; }
 body:has(.html5-video-player.ytp-fullscreen) #ytba-root { top: 0; height: 100vh; }
-body:has(.html5-video-player.ytp-fullscreen) #ytba-root.ytba-collapsed { top: 72px; height: 116px; }
+body:has(.html5-video-player.ytp-fullscreen) #ytba-root.ytba-collapsed { top: 0; height: 100vh; }
 body:has(.html5-video-player.ytp-fullscreen) #page-manager { margin-right: 0; }

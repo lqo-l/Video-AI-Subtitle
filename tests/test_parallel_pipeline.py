@@ -21,7 +21,7 @@ def test_translation_and_summary_start_concurrently(tmp_path, monkeypatch):
             segments[0].zh = "你好"
             progress(1, 1)
 
-        async def summarize(self, title, segments, on_stream):
+        async def summarize(self, title, segments, on_stream, resume_from=""):
             summary_entry_zh.append(segments[0].zh)
             summary_started.set()
             await asyncio.wait_for(translation_started.wait(), timeout=1)
@@ -78,7 +78,7 @@ def test_summary_failure_does_not_discard_translated_subtitles(tmp_path, monkeyp
             segments[0].zh = "你好"
             progress(1, 1)
 
-        async def summarize(self, title, segments, on_stream):
+        async def summarize(self, title, segments, on_stream, resume_from=""):
             raise RuntimeError("summary unavailable")
 
         async def close(self):

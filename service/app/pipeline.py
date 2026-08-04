@@ -22,6 +22,17 @@ JOBS: dict[str, JobView] = {}
 CACHE_SCHEMA_VERSION = 2  # Moon Add: invalidate pre-normalization subtitle caches.
 
 
+def _write_json_atomic(path: Path, data: dict) -> None:
+    """Write checkpoint JSON without exposing a half-written file after interruption."""
+    # Moon Add
+    temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def video_id_from_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.hostname == "youtu.be":
@@ -171,6 +182,12 @@ async def process_job(job_id: str, url: str) -> None:
     duration: float | None = None
     source: str = ""
     resume: bool = False
+    saved_summary_partial: str = ""
+    saved_summary: str = ""
+    saved_key_points: list[str] = []
+    current_summary: str = ""
+    current_key_points: list[str] = []
+    summary_already_completed = False
 
     # Try loading from partial cache for resume
     if partial_path.exists():
@@ -180,6 +197,12 @@ async def process_job(job_id: str, url: str) -> None:
             title = data.get("title", video_id)
             duration = data.get("duration")
             source = data.get("source", "resume")
+            saved_summary_partial = data.get("summary_partial", "")
+            saved_summary = data.get("summary", "")
+            saved_key_points = [str(x) for x in data.get("key_points", [])]
+            current_summary = saved_summary
+            current_key_points = saved_key_points
+            summary_already_completed = data.get("summary_state") == "completed"
             # Moon Modified: fully translated partial data is still useful when only
             # summarization failed; reuse it instead of downloading/transcribing again.
             resume = bool(segments)
@@ -204,9 +227,12 @@ async def process_job(job_id: str, url: str) -> None:
             title = info.get("title", video_id)
             duration = info.get("duration")
             # Save partial state for crash recovery
-            partial = {"title": title, "duration": duration, "source": source,
-                        "segments": [s.model_dump() for s in segments]}
-            partial_path.write_text(json.dumps(partial, ensure_ascii=False, indent=2), encoding="utf-8")
+            _write_json_atomic(partial_path, {
+                "title": title, "duration": duration, "source": source,
+                "segments": [s.model_dump() for s in segments],
+                "summary_partial": "", "summary_state": "idle",
+                "summary": "", "key_points": [],
+            })
         finally:
             shutil.rmtree(temp, ignore_errors=True)
 
@@ -214,17 +240,35 @@ async def process_job(job_id: str, url: str) -> None:
     job.preview_segments = segments
     job.total_segments = len(segments)
     job.stage, job.progress = f"翻译中文字幕 0 / {len(segments)}", 55
+    job.translated_segments = sum(1 for segment in segments if segment.zh)
+    job.summary_partial = saved_summary_partial
+    if summary_already_completed:
+        job.summary_state = "completed"
+
+    def persist_checkpoint(
+        summary_state: str | None = None,
+        summary: str | None = None,
+        key_points: list[str] | None = None,
+    ) -> None:
+        # Moon Add: extraction, translation and summary share one atomic checkpoint.
+        _write_json_atomic(partial_path, {
+            "title": title,
+            "duration": duration,
+            "source": source,
+            "segments": [segment.model_dump() for segment in segments],
+            "summary_partial": job.summary_partial,
+            "summary_state": summary_state or job.summary_state,
+            "summary": current_summary if summary is None else summary,
+            "key_points": current_key_points if key_points is None else key_points,
+        })
 
     def publish_translation(completed: int, total: int) -> None:
         job.translated_segments = completed
         job.total_segments = total
         job.progress = min(88, 55 + int(completed / max(total, 1) * 33))
         job.stage = f"翻译中文字幕 {completed} / {total}"
-        # Persist after each batch for crash recovery
         try:
-            partial = json.loads(partial_path.read_text(encoding="utf-8"))
-            partial["segments"] = [s.model_dump() for s in segments]
-            partial_path.write_text(json.dumps(partial, ensure_ascii=False, indent=2), encoding="utf-8")
+            persist_checkpoint()
         except Exception:
             pass
 
@@ -234,15 +278,29 @@ async def process_job(job_id: str, url: str) -> None:
         # Moon Begin: both coroutines receive the extracted English transcript and
         # start before either is awaited. Their state and failures remain independent.
         job.stage = f"翻译中文字幕 0 / {len(segments)}"
-        job.summary_state = "running"
+        if not summary_already_completed:
+            job.summary_state = "running"
 
         def on_summary_chunk(chunk: str) -> None:
             job.summary_partial = chunk
+            try:
+                persist_checkpoint(summary_state="running")
+            except Exception:
+                pass
 
         async def run_summary() -> tuple[str, list[str]]:
+            nonlocal current_summary, current_key_points
+            if summary_already_completed:
+                return saved_summary, saved_key_points
             try:
-                value = await client.summarize(title, segments, on_summary_chunk)
+                value = await client.summarize(
+                    title, segments, on_summary_chunk, resume_from=saved_summary_partial
+                )
                 job.summary_state = "completed"
+                current_summary, current_key_points = value
+                persist_checkpoint(
+                    summary_state="completed", summary=value[0], key_points=value[1]
+                )
                 return value
             except Exception as exc:
                 job.summary_state, job.summary_error = "failed", str(exc)
@@ -283,9 +341,7 @@ async def process_job(job_id: str, url: str) -> None:
         partial_path.unlink(missing_ok=True)
     else:
         # Moon Add: keep translated partial data so the next run only retries summary.
-        partial = {"title": title, "duration": duration, "source": source,
-                   "segments": [s.model_dump() for s in segments]}
-        partial_path.write_text(json.dumps(partial, ensure_ascii=False, indent=2), encoding="utf-8")
+        persist_checkpoint(summary_state="failed")
     job.result = result
     job.preview_segments = segments
     job.translated_segments = len(segments)

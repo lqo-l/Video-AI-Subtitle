@@ -19,6 +19,8 @@
 - **Streaming translation** — first batch is playable within seconds; subsequent segments join the timeline as they arrive.
 - **True parallel pipeline** — English summarization starts immediately alongside translation, with a live streamed summary.
 - **Clear completion states** — transcript and summary tabs independently highlight processing, completion, and failure.
+- **Checkpoint resume** — preserves extracted captions, translated batches, and streamed summaries; **↻ Retry** continues without repeating completed work.
+- **Smooth sidebar** — collapse with `>` while the sidebar and YouTube player transition in sync.
 - **Batch-aware context** — each batch receives 5 preceding translations as reference, preserving terminology and tone across the entire video.
 - **Smart caption cleanup** — detects and collapses YouTube rolling-caption duplicates, re-segments into natural sentences.
 - **Independent model selection** — translation and summarization use separately configurable models via any OpenAI-compatible API.
@@ -83,6 +85,8 @@ Open the extension popup, click **Settings**, and fill in:
 ## Usage
 
 Navigate to any English YouTube video. Click the extension icon and select **Process Current Video**. The first translated subtitle batch appears within seconds; the full transcript, summary, and key points follow automatically.
+
+After a browser, network, or local-service interruption, click **Process Current Video** again or **↻ Retry** in the sidebar. Completed extraction, translation, and summary progress is reused. **Clear Subtitle Cache** also removes these checkpoints.
 
 ## Troubleshooting
 

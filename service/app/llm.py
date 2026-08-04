@@ -96,15 +96,20 @@ class LlmClient:
             batch = segments[offset : offset + batch_size]
             if all(item.zh for item in batch):
                 if progress:
-                    progress(offset + len(batch), len(segments))
+                    progress(sum(bool(item.zh) for item in segments), len(segments))
                 continue
-            # Moon Begin: previous translations are context-only; the model must not output them.
+            # Moon Begin: previous translations are context-only; resume requests contain
+            # only missing IDs, so an interrupted partial batch is never translated twice.
             context_start = max(0, offset - context_size)
             context = [
                 {"id": i, "en": segments[i].en, "zh": segments[i].zh}
                 for i in range(context_start, offset)
             ]
-            current = [{"id": offset + i, "en": item.en} for i, item in enumerate(batch)]
+            current = [
+                {"id": offset + i, "en": item.en}
+                for i, item in enumerate(batch)
+                if not item.zh
+            ]
             payload = {"context_only": context, "translate": current}
             text = await self._request(
                 self.config.translation_model,
@@ -115,7 +120,7 @@ class LlmClient:
             match = re.search(r"\[[\s\S]*\]", text)
             if not match:
                 raise RuntimeError("翻译模型未返回有效 JSON 数组")
-            expected_ids = {offset + i for i in range(len(batch))}
+            expected_ids = {item["id"] for item in current}
             translated = {
                 int(x["id"]): str(x["zh"]).strip()
                 for x in json.loads(match.group())
@@ -143,18 +148,21 @@ class LlmClient:
                 if set(translated) != expected_ids:
                     still_missing = sorted(expected_ids - set(translated))
                     raise RuntimeError(f"翻译模型漏掉字幕 ID：{still_missing}")
-            for i, item in enumerate(batch):
-                item.zh = translated[offset + i]
+            for segment_id, translated_text in translated.items():
+                segments[segment_id].zh = translated_text
             if progress:
                 # Moon Modified: publish the completed count after every batch.
-                completed = min(offset + len(batch), len(segments))
+                completed = sum(bool(item.zh) for item in segments)
                 progress(completed, len(segments))
 
-    async def summarize(self, title: str, segments: list[Segment], on_stream=None) -> tuple[str, list[str]]:
+    async def summarize(
+        self, title: str, segments: list[Segment], on_stream=None, resume_from: str = ""
+    ) -> tuple[str, list[str]]:
         lines = []
         for s in segments:
             ts = f"[{s.start:.0f}s]"
-            lines.append(f"{ts} {s.en} / {s.zh}" if s.zh else f"{ts} {s.en}")
+            # Moon Modified: summarization starts from the stable extracted English text.
+            lines.append(f"{ts} {s.en}")
         transcript = "\n".join(lines)
         json_prompt = "总结视频内容。只返回 JSON 对象：summary 为 2-4 段中文 Markdown 摘要，key_points 为 5-12 条中文要点字符串。不得添加代码围栏。"
         user_msg = f"标题：{title}\n\n字幕：\n{transcript}"
@@ -165,12 +173,19 @@ class LlmClient:
                 "## 内容摘要\n2-4 段连贯摘要\n\n## 关键点\n- 5-12 条要点\n"
                 "不要输出代码围栏、JSON 或额外前言。"
             )
-            text = await self._stream_summarize(
+            if resume_from:
+                user_msg += (
+                    "\n\n以下是中断前已经生成并展示给用户的内容：\n"
+                    f"{resume_from}\n\n从最后一个字符后自然续写，只输出尚未生成的后续内容，"
+                    "不要重复标题或已有段落。"
+                )
+            continuation = await self._stream_summarize(
                 self.config.summary_model,
                 stream_prompt,
                 user_msg,
-                lambda chunk: on_stream(chunk),
+                lambda chunk: on_stream(resume_from + chunk),
             )
+            text = resume_from + continuation
             summary, key_points = self._parse_streamed_summary(text)
             return summary, key_points
             # Moon End
