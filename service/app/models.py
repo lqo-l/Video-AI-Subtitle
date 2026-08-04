@@ -57,3 +57,6 @@ class JobView(BaseModel):
     error: str | None = None
     result: ProcessedVideo | None = None
     summary_partial: str = ""
+    # Moon Add: summary has an independent lifecycle from translation.
+    summary_state: Literal["idle", "running", "completed", "failed"] = "idle"
+    summary_error: str | None = None

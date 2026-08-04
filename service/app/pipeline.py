@@ -178,12 +178,9 @@ async def process_job(job_id: str, url: str) -> None:
             title = data.get("title", video_id)
             duration = data.get("duration")
             source = data.get("source", "resume")
-            if all(s.zh for s in segments):
-                # All translated but no final cache -- shouldn't happen, clean up
-                partial_path.unlink(missing_ok=True)
-                segments = []
-            else:
-                resume = True
+            # Moon Modified: fully translated partial data is still useful when only
+            # summarization failed; reuse it instead of downloading/transcribing again.
+            resume = bool(segments)
         except Exception:
             segments = []
 
@@ -232,18 +229,40 @@ async def process_job(job_id: str, url: str) -> None:
     config = load_config()
     client = LlmClient(config)
     try:
-        try:
-            job.stage = f"翻译中文字幕 0 / {len(segments)}"
-            translate_task = asyncio.create_task(client.translate(segments, publish_translation))
-            def on_summary_chunk(chunk: str) -> None:
-                job.summary_partial = chunk
-            summary_task = asyncio.create_task(client.summarize(title, segments, on_summary_chunk))
-            await translate_task
-            job.stage = "生成摘要中…"
-            summary, key_points = await summary_task
-        except Exception as exc:
-            job.state, job.stage, job.error = "failed", "处理失败", str(exc)
+        # Moon Begin: both coroutines receive the extracted English transcript and
+        # start before either is awaited. Their state and failures remain independent.
+        job.stage = f"翻译中文字幕 0 / {len(segments)}"
+        job.summary_state = "running"
+
+        def on_summary_chunk(chunk: str) -> None:
+            job.summary_partial = chunk
+
+        async def run_summary() -> tuple[str, list[str]]:
+            try:
+                value = await client.summarize(title, segments, on_summary_chunk)
+                job.summary_state = "completed"
+                return value
+            except Exception as exc:
+                job.summary_state, job.summary_error = "failed", str(exc)
+                raise
+
+        translate_task = asyncio.create_task(client.translate(segments, publish_translation))
+        summary_task = asyncio.create_task(run_summary())
+        translate_result, summary_result = await asyncio.gather(
+            translate_task, summary_task, return_exceptions=True
+        )
+
+        if isinstance(translate_result, BaseException):
+            job.state, job.stage, job.error = "failed", "字幕翻译失败", str(translate_result)
+            if isinstance(summary_result, BaseException):
+                job.summary_state, job.summary_error = "failed", str(summary_result)
             return
+
+        if isinstance(summary_result, BaseException):
+            summary, key_points = "", []
+        else:
+            summary, key_points = summary_result
+        # Moon End
     finally:
         await client.close()
 
@@ -257,13 +276,20 @@ async def process_job(job_id: str, url: str) -> None:
         summary=summary,
         key_points=key_points,
     )
-    cache_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
-    partial_path.unlink(missing_ok=True)
+    if job.summary_state == "completed":
+        cache_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+        partial_path.unlink(missing_ok=True)
+    else:
+        # Moon Add: keep translated partial data so the next run only retries summary.
+        partial = {"title": title, "duration": duration, "source": source,
+                   "segments": [s.model_dump() for s in segments]}
+        partial_path.write_text(json.dumps(partial, ensure_ascii=False, indent=2), encoding="utf-8")
     job.result = result
     job.preview_segments = segments
     job.translated_segments = len(segments)
     job.total_segments = len(segments)
-    job.state, job.stage, job.progress = "completed", "处理完成，请手动播放", 100
+    final_stage = "字幕完成，摘要生成失败" if job.summary_state == "failed" else "处理完成，请手动播放"
+    job.state, job.stage, job.progress = "completed", final_stage, 100
 
 def create_job(url: str) -> JobView:
     job_id = uuid.uuid4().hex

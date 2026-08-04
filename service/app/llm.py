@@ -19,6 +19,8 @@ class LlmClient:
     async def _request(self, model: str, system: str, user: str) -> str:
         if not self.config.api_key:
             raise RuntimeError("请先在扩展设置中填写 API Key")
+        if not self.config.base_url:
+            raise RuntimeError("请先在扩展设置中填写 Base URL")
         headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
         base = self.config.base_url.rstrip("/")
 
@@ -28,7 +30,7 @@ class LlmClient:
             headers=headers,
             json={"model": model, "instructions": system, "input": user},
         )
-        if response.status_code in (401, 404, 405):
+        if response.status_code in (404, 405):
             response = await self.client.post(
                 f"{base}/chat/completions",
                 headers=headers,
@@ -54,6 +56,10 @@ class LlmClient:
         return "\n".join(parts)
 
     async def _stream_summarize(self, model: str, system: str, user: str, on_chunk):
+        if not self.config.api_key:
+            raise RuntimeError("请先在扩展设置中填写 API Key")
+        if not self.config.base_url:
+            raise RuntimeError("请先在扩展设置中填写 Base URL")
         headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
         base = self.config.base_url.rstrip("/")
         accumulated = []
@@ -62,6 +68,11 @@ class LlmClient:
             headers=headers,
             json={"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.2, "stream": True},
         ) as response:
+            if response.status_code in (404, 405, 501):
+                # Moon Add: Responses-only gateways may not expose streaming chat.
+                fallback = await self._request(model, system, user)
+                on_chunk(fallback)
+                return fallback
             response.raise_for_status()
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
@@ -145,19 +156,28 @@ class LlmClient:
             ts = f"[{s.start:.0f}s]"
             lines.append(f"{ts} {s.en} / {s.zh}" if s.zh else f"{ts} {s.en}")
         transcript = "\n".join(lines)
-        prompt = "总结视频内容。只返回 JSON 对象：summary 为 2-4 段中文 Markdown 摘要，key_points 为 5-12 条中文要点字符串。不得添加代码围栏。"
+        json_prompt = "总结视频内容。只返回 JSON 对象：summary 为 2-4 段中文 Markdown 摘要，key_points 为 5-12 条中文要点字符串。不得添加代码围栏。"
         user_msg = f"标题：{title}\n\n字幕：\n{transcript}"
         if on_stream:
+            # Moon Begin: stream readable Markdown instead of incomplete JSON fragments.
+            stream_prompt = (
+                "根据英文视频字幕生成简体中文内容提炼。严格使用以下 Markdown 结构：\n"
+                "## 内容摘要\n2-4 段连贯摘要\n\n## 关键点\n- 5-12 条要点\n"
+                "不要输出代码围栏、JSON 或额外前言。"
+            )
             text = await self._stream_summarize(
                 self.config.summary_model,
-                prompt,
+                stream_prompt,
                 user_msg,
                 lambda chunk: on_stream(chunk),
             )
+            summary, key_points = self._parse_streamed_summary(text)
+            return summary, key_points
+            # Moon End
         else:
             text = await self._request(
                 self.config.summary_model,
-                prompt,
+                json_prompt,
                 user_msg,
             )
         match = re.search(r"\{[\s\S]*\}", text)
@@ -165,3 +185,14 @@ class LlmClient:
             return text.strip(), []
         data = json.loads(match.group())
         return str(data.get("summary", "")).strip(), [str(x) for x in data.get("key_points", [])]
+
+    @staticmethod
+    def _parse_streamed_summary(text: str) -> tuple[str, list[str]]:
+        # Moon Add: retain a clean final cache while streaming human-readable Markdown.
+        normalized = text.strip()
+        parts = re.split(r"^##\s*关键点\s*$", normalized, maxsplit=1, flags=re.MULTILINE)
+        summary = re.sub(r"^##\s*内容摘要\s*$", "", parts[0], flags=re.MULTILINE).strip()
+        points = []
+        if len(parts) == 2:
+            points = [re.sub(r"^[-*]\s*", "", line).strip() for line in parts[1].splitlines() if re.match(r"^\s*[-*]\s+", line)]
+        return summary, points

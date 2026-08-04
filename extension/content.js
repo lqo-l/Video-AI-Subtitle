@@ -1,4 +1,4 @@
-(() => { console.log("[YTBA] content.js v3 loaded - spinner + summary streaming");
+(() => {
   const API = "http://127.0.0.1:18765";
   let job = null;
   let result = null;
@@ -10,6 +10,8 @@
   let playbackReady = false;
   let panelCollapsed = false;
   let playerResizeObserver = null;
+  let renderedSummary = "";
+  let summaryAutoOpened = false;
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
 
@@ -63,7 +65,7 @@
     if (root) return root;
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><span data-status>准备中</span><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript">字幕</button><button data-tab="summary">摘要</button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript">字幕</button><button data-tab="summary">摘要 <span class="ytba-live-dot" hidden></span></button></div><div class="ytba-body"></div>`;
     // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
     root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
     root.onclick = event => { if (panelCollapsed && !event.target.closest("button,select")) setPanelCollapsed(false); };
@@ -150,6 +152,16 @@
     return lines.join("\n");
   }
 
+  function renderSummaryMarkdown(markdown) {
+    // Moon Add: render the constrained summary Markdown without injecting model HTML.
+    return markdown.split("\n").map(line=>{
+      const safe=escapeHtml(line);
+      if(/^##\s+/.test(line))return `<h3 class="ytba-stream-section">${safe.replace(/^##\s+/,"")}</h3>`;
+      if(/^[-*]\s+/.test(line))return `<div class="ytba-stream-point"><span>◆</span>${safe.replace(/^[-*]\s+/,"")}</div>`;
+      return line.trim()?`<p>${safe}</p>`:'<div class="ytba-stream-gap"></div>';
+    }).join("");
+  }
+
   function updateStatus(stage, progress, error) {
     const root = ensurePanel();
     root.querySelector("[data-status]").textContent = error ? `${stage}: ${error}` : stage;
@@ -162,7 +174,7 @@
       bar.classList.remove("ytba-progress-indeterminate");
       bar.style.width = `${progress || 0}%`;
     }
-    const spinner = root.querySelector(".ytba-spinner");
+    const spinner = root.querySelector(".ytba-pulse");
     const done = error || progress >= 100;
     if (spinner) spinner.style.display = done ? "none" : "inline-block";
   }
@@ -195,15 +207,18 @@
           updateStatus(`已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`, job.progress);
         }
         if (activeTab === "transcript") renderTab("transcript");
-      if (job.summary_partial) {
-        renderTab("summary");
-        if (activeTab !== "summary") {
-          // Auto-switch to summary tab when streaming begins
-          activeTab = "summary";
-          const root = ensurePanel();
-          root.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("active", x.dataset.tab === "summary"));
-        }
       }
+      // Moon End
+      // Moon Begin: summary streaming is independent from translation batches.
+      if (job.summary_partial && job.summary_partial !== renderedSummary) {
+        renderedSummary = job.summary_partial;
+        const root = ensurePanel();
+        root.querySelector(".ytba-live-dot").hidden = job.summary_state !== "running";
+        if (!summaryAutoOpened) {
+          summaryAutoOpened = true;
+          activeTab = "summary";
+        }
+        if (activeTab === "summary") renderTab("summary");
       }
       // Moon End
       if (job.state === "completed") {
@@ -225,7 +240,7 @@
     setupPlayback();
     const root = ensurePanel();
     root.querySelector("[data-export]").disabled = false;
-    renderTab("transcript");
+    renderTab(activeTab);
   }
 
   function setupPlayback() {
@@ -265,7 +280,14 @@
     root.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("active", x.dataset.tab === tab));
     const body = root.querySelector(".ytba-body");
     if (tab === "summary") {
-      body.innerHTML = `<h3>摘要</h3><div>${escapeHtml(result.summary).replace(/\n/g,"<br>")}</div><h3>关键点</h3><ul>${result.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`;
+      if (job?.state !== "completed" && renderedSummary) {
+        const streaming=job.summary_state === "running";
+        body.innerHTML = `<div class="ytba-stream-heading">${streaming?'<span class="ytba-live-dot"></span> AI 正在提炼英文内容':'✓ 摘要已生成，字幕仍在翻译'}</div><div class="ytba-stream-text">${renderSummaryMarkdown(renderedSummary)}${streaming?'<span class="ytba-stream-caret"></span>':''}</div>`;
+      } else if (job?.summary_state === "failed" && !result.summary) {
+        body.innerHTML = `<div class="ytba-summary-error">摘要生成失败：${escapeHtml(job.summary_error || "未知错误")}<br>字幕翻译结果仍可正常使用。</div>`;
+      } else {
+        body.innerHTML = `<h3>摘要</h3><div>${escapeHtml(result.summary).replace(/\n/g,"<br>")}</div><h3>关键点</h3><ul>${result.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`;
+      }
       return;
     }
     body.innerHTML = result.segments.map((x,i)=>`<div class="ytba-segment" data-index="${i}"><div class="ytba-time">${formatTime(x.start)}</div><div class="ytba-en">${escapeHtml(x.en)}</div><div class="ytba-zh">${x.zh ? escapeHtml(x.zh) : '<span style="color:#707784">等待翻译…</span>'}</div></div>`).join("");
@@ -294,7 +316,7 @@
     const player = video();
     if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);
     playerResizeObserver?.disconnect(); playerResizeObserver=null;
-    clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; activeTab = "transcript"; playbackReady = false; overlay = null;
+    clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; renderedSummary = ""; summaryAutoOpened = false; activeTab = "transcript"; playbackReady = false; overlay = null;
     document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-fullscreen"); panelCollapsed=false;
     if (location.pathname === "/watch") setTimeout(showPrompt, 1800);
   }

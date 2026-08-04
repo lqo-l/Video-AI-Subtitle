@@ -17,6 +17,7 @@
 - **YouTube captions first** — reuses existing English subtitles whenever available, falls back to local Whisper transcription only when needed.
 - **GPU-accelerated transcription** — CUDA support via `faster-whisper`, with automatic CPU fallback.
 - **Streaming translation** — first batch is playable within seconds; subsequent segments join the timeline as they arrive.
+- **True parallel pipeline** — English summarization starts immediately alongside translation, with a live streamed summary.
 - **Batch-aware context** — each batch receives 5 preceding translations as reference, preserving terminology and tone across the entire video.
 - **Smart caption cleanup** — detects and collapses YouTube rolling-caption duplicates, re-segments into natural sentences.
 - **Independent model selection** — translation and summarization use separately configurable models via any OpenAI-compatible API.

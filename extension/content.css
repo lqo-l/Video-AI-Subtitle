@@ -9,14 +9,18 @@
 .ytba-button.secondary { background: #343945; }
 .ytba-status { padding: 12px 14px; border-bottom: 1px solid #333842; }
 .ytba-status-row { display: flex; align-items: center; gap: 8px; }
-.ytba-spinner { display: none; width: 22px; height: 22px; border: 3px solid #333842; border-top-color: #5b9aff; border-radius: 50%; animation: ytba-spin .6s linear infinite; box-shadow: 0 0 8px rgba(75,140,255,.35); }
-@keyframes ytba-spin { to { transform: rotate(360deg); } }
-.ytba-progress-indeterminate { width: 100% !important; animation: ytba-progress-slide 1.8s ease-in-out infinite; border-radius: 9px; }
-@keyframes ytba-progress-slide { 0% { margin-left: 0; width: 30%; } 50% { margin-left: 35%; width: 30%; } 100% { margin-left: 70%; width: 30%; } }
+.ytba-pulse { display: flex; align-items: center; justify-content: center; gap: 2px; width: 28px; height: 24px; padding: 4px 5px; border-radius: 9px; background: linear-gradient(145deg, rgba(55,120,255,.28), rgba(126,76,255,.2)); box-shadow: inset 0 0 0 1px rgba(130,170,255,.22), 0 4px 14px rgba(50,95,220,.2); }
+.ytba-pulse i { width: 2px; height: 5px; border-radius: 4px; background: linear-gradient(to top, #4b8cff, #a987ff); animation: ytba-wave 1.15s ease-in-out infinite; transform-origin: center; }
+.ytba-pulse i:nth-child(2), .ytba-pulse i:nth-child(4) { animation-delay: -.8s; }
+.ytba-pulse i:nth-child(3) { animation-delay: -.55s; }
+.ytba-pulse i:nth-child(5) { animation-delay: -.3s; }
+@keyframes ytba-wave { 0%,100% { height: 4px; opacity:.55; } 45% { height: 15px; opacity:1; filter:drop-shadow(0 0 4px #6f8fff); } }
+.ytba-progress-indeterminate { width: 34% !important; background:linear-gradient(90deg,#477eff,#9b72ff,#53c7ff) !important; animation: ytba-progress-glide 1.75s cubic-bezier(.4,0,.2,1) infinite; border-radius: 9px; box-shadow:0 0 10px rgba(105,132,255,.55); }
+@keyframes ytba-progress-glide { 0% { transform:translateX(-115%); opacity:.45; } 45% { opacity:1; } 100% { transform:translateX(300%); opacity:.45; } }
 .ytba-controls { padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid #333842; }
 .ytba-completed .ytba-status { background: linear-gradient(135deg, #1a3a2e, #13271c); }
 .ytba-completed .ytba-progress > div { background: #34d399; }
-.ytba-completed .ytba-spinner { display: none !important; }
+.ytba-completed .ytba-pulse { display: none !important; }
 .ytba-control { color: #e8ebf0; background: #343945; border: 1px solid #4a5160; border-radius: 5px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
 .ytba-control.active { background: #2867d6; border-color: #4b8cff; }
 .ytba-control select { color: inherit; background: transparent; border: 0; outline: 0; font-size: inherit; }
@@ -25,6 +29,20 @@
 .ytba-tabs { display: flex; border-bottom: 1px solid #333842; }
 .ytba-tabs button { flex: 1; color: #bbb; background: transparent; border: 0; padding: 10px; cursor: pointer; }
 .ytba-tabs button.active { color: white; border-bottom: 2px solid #4b8cff; }
+.ytba-live-dot { display:inline-block; width:7px; height:7px; margin-left:4px; border-radius:50%; background:#6f9cff; box-shadow:0 0 0 0 rgba(90,145,255,.65); animation:ytba-live 1.5s ease-out infinite; }
+.ytba-live-dot[hidden] { display:none; }
+@keyframes ytba-live { 70% { box-shadow:0 0 0 7px rgba(90,145,255,0); } 100% { box-shadow:0 0 0 0 rgba(90,145,255,0); } }
+.ytba-stream-heading { color:#9fc0ff; font-size:12px; letter-spacing:.4px; margin:3px 0 12px; }
+.ytba-stream-text { color:#e9edf6; line-height:1.75; white-space:normal; }
+.ytba-stream-text p { margin:0 0 8px; }
+.ytba-stream-section { margin:15px 0 8px; color:#fff; font-size:15px; font-weight:650; }
+.ytba-stream-section:first-child { margin-top:0; }
+.ytba-stream-point { display:flex; gap:8px; margin:6px 0; padding:7px 9px; background:linear-gradient(100deg,rgba(62,103,190,.18),rgba(102,70,175,.1)); border-radius:7px; }
+.ytba-stream-point span { color:#7ca8ff; font-size:8px; padding-top:5px; }
+.ytba-stream-gap { height:5px; }
+.ytba-stream-caret { display:inline-block; width:2px; height:1.1em; margin-left:3px; vertical-align:-2px; background:#7aa6ff; animation:ytba-caret .85s steps(1) infinite; }
+@keyframes ytba-caret { 50% { opacity:0; } }
+.ytba-summary-error { margin-top:10px; padding:12px; color:#ffd1d1; background:#3a2025; border:1px solid #64323c; border-radius:8px; }
 .ytba-body { flex: 1; overflow: auto; padding: 10px 14px; }
 .ytba-segment { padding: 9px; border-radius: 6px; cursor: pointer; margin-bottom: 6px; }
 .ytba-segment:hover, .ytba-segment.active { background: #293142; }
