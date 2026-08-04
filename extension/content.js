@@ -12,6 +12,8 @@
   let playerResizeObserver = null;
   let renderedSummary = "";
   let summaryAutoOpened = false;
+  let transcriptComplete = false;
+  let summaryComplete = false;
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
 
@@ -65,7 +67,7 @@
     if (root) return root;
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript">字幕</button><button data-tab="summary">摘要 <span class="ytba-live-dot" hidden></span></button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary" data-close>×</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
     // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
     root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
     root.onclick = event => { if (panelCollapsed && !event.target.closest("button,select")) setPanelCollapsed(false); };
@@ -75,7 +77,29 @@
     document.body.appendChild(root);
     document.body.classList.add("ytba-panel-open");
     setPanelCollapsed(panelCollapsed);
+    refreshTabStates();
     return root;
+  }
+
+  function setTabComplete(tab, complete) {
+    const changed=(tab==="transcript"?transcriptComplete:summaryComplete)!==complete;
+    if(tab==="transcript")transcriptComplete=complete;else summaryComplete=complete;
+    const button=document.querySelector(`#ytba-root [data-tab="${tab}"]`);
+    button?.classList.toggle("completed",complete);
+    button?.classList.toggle("just-completed",complete&&changed);
+    if(complete&&changed)setTimeout(()=>button?.classList.remove("just-completed"),1800);
+    refreshTabStates();
+  }
+
+  function refreshTabStates() {
+    const root=document.querySelector("#ytba-root");if(!root)return;
+    const transcript=root.querySelector('[data-tab="transcript"]');
+    const summary=root.querySelector('[data-tab="summary"]');
+    transcript?.classList.toggle("completed",transcriptComplete);
+    transcript?.classList.toggle("processing",Boolean(job&&job.state==="running"&&!transcriptComplete));
+    summary?.classList.toggle("completed",summaryComplete);
+    summary?.classList.toggle("processing",job?.summary_state==="running");
+    summary?.classList.toggle("failed",job?.summary_state==="failed");
   }
 
   function setPanelCollapsed(collapsed) {
@@ -198,6 +222,9 @@
         ? `已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`
         : job.stage;
       updateStatus(liveStage, job.progress, job.error);
+      setTabComplete("transcript",job.total_segments>0&&job.translated_segments>=job.total_segments);
+      setTabComplete("summary",job.summary_state==="completed");
+      refreshTabStates();
       // Moon Begin: render each completed translation batch immediately.
       if (job.preview_segments?.length && job.translated_segments !== renderedTranslationCount) {
         renderedTranslationCount = job.translated_segments;
@@ -212,8 +239,6 @@
       // Moon Begin: summary streaming is independent from translation batches.
       if (job.summary_partial && job.summary_partial !== renderedSummary) {
         renderedSummary = job.summary_partial;
-        const root = ensurePanel();
-        root.querySelector(".ytba-live-dot").hidden = job.summary_state !== "running";
         if (!summaryAutoOpened) {
           summaryAutoOpened = true;
           activeTab = "summary";
@@ -316,7 +341,7 @@
     const player = video();
     if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);
     playerResizeObserver?.disconnect(); playerResizeObserver=null;
-    clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; renderedSummary = ""; summaryAutoOpened = false; activeTab = "transcript"; playbackReady = false; overlay = null;
+    clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; renderedSummary = ""; summaryAutoOpened = false; transcriptComplete = false; summaryComplete = false; activeTab = "transcript"; playbackReady = false; overlay = null;
     document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-fullscreen"); panelCollapsed=false;
     if (location.pathname === "/watch") setTimeout(showPrompt, 1800);
   }

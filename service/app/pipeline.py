@@ -161,6 +161,8 @@ async def process_job(job_id: str, url: str) -> None:
         job.preview_segments = job.result.segments
         job.translated_segments = len(job.result.segments)
         job.total_segments = len(job.result.segments)
+        job.summary_partial = job.result.summary
+        job.summary_state = "completed"
         return
 
     partial_path = CACHE_DIR / f"{video_id}.partial.v{CACHE_SCHEMA_VERSION}.json"

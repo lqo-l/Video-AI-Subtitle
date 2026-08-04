@@ -27,8 +27,17 @@
 .ytba-progress { height: 5px; background: #343945; margin-top: 8px; border-radius: 9px; overflow: hidden; }
 .ytba-progress > div { height: 100%; background: #4b8cff; transition: width .25s; }
 .ytba-tabs { display: flex; border-bottom: 1px solid #333842; }
-.ytba-tabs button { flex: 1; color: #bbb; background: transparent; border: 0; padding: 10px; cursor: pointer; }
+.ytba-tabs button { position:relative; flex: 1; color: #bbb; background: transparent; border: 0; padding: 10px; cursor: pointer; transition:color .3s ease,background .3s ease,text-shadow .3s ease; }
 .ytba-tabs button.active { color: white; border-bottom: 2px solid #4b8cff; }
+.ytba-tab-indicator { display:inline-block; width:7px; height:7px; margin-left:6px; border-radius:50%; background:#4b5568; vertical-align:1px; transition:all .3s ease; }
+.ytba-tabs button.processing .ytba-tab-indicator { background:#729dff; box-shadow:0 0 0 0 rgba(90,145,255,.65); animation:ytba-live 1.5s ease-out infinite; }
+.ytba-tabs button.completed { color:#89efbd; background:linear-gradient(180deg,rgba(48,176,119,.11),rgba(48,176,119,.02)); }
+.ytba-tabs button.completed .ytba-tab-indicator { width:16px; height:16px; color:#10271d; background:#4fd59a; box-shadow:0 0 10px rgba(79,213,154,.35); }
+.ytba-tabs button.completed .ytba-tab-indicator::after { content:"✓"; display:block; font-style:normal; font-size:11px; line-height:16px; font-weight:900; text-align:center; }
+.ytba-tabs button.failed { color:#ffabab; }
+.ytba-tabs button.failed .ytba-tab-indicator { background:#e56a78; }
+.ytba-tabs button.just-completed { animation:ytba-tab-complete 1.2s ease-out; }
+@keyframes ytba-tab-complete { 0% { background:rgba(62,221,151,.32); text-shadow:0 0 14px #57e2a2; } 100% { background:rgba(48,176,119,.02); text-shadow:none; } }
 .ytba-live-dot { display:inline-block; width:7px; height:7px; margin-left:4px; border-radius:50%; background:#6f9cff; box-shadow:0 0 0 0 rgba(90,145,255,.65); animation:ytba-live 1.5s ease-out infinite; }
 .ytba-live-dot[hidden] { display:none; }
 @keyframes ytba-live { 70% { box-shadow:0 0 0 7px rgba(90,145,255,0); } 100% { box-shadow:0 0 0 0 rgba(90,145,255,0); } }
