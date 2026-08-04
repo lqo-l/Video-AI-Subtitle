@@ -346,7 +346,13 @@
       } else if (job?.summary_state === "failed" && !result.summary) {
         body.innerHTML = `<div class="ytba-summary-error">摘要生成失败：${escapeHtml(job.summary_error || "未知错误")}<br>字幕翻译结果仍可正常使用。</div>`;
       } else {
-        body.innerHTML = `<h3>摘要</h3><div>${escapeHtml(result.summary).replace(/\n/g,"<br>")}</div><h3>关键点</h3><ul>${result.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`;
+        // Moon Modified: cached and completed summaries retain the polished
+        // streaming layout instead of falling back to plain headings and lists.
+        const completedMarkdown=[
+          "## 内容摘要",result.summary,"","## 关键点",
+          ...result.key_points.map(point=>`- ${point}`),
+        ].join("\n");
+        body.innerHTML = `<div class="ytba-stream-heading"><span class="ytba-summary-check">✓</span> AI 内容提炼已完成</div><div class="ytba-stream-text">${renderSummaryMarkdown(completedMarkdown)}</div>`;
       }
       return;
     }

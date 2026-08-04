@@ -32,7 +32,11 @@
 .ytba-completed .ytba-pulse { display: none !important; }
 .ytba-control { color: #e8ebf0; background: #343945; border: 1px solid #4a5160; border-radius: 5px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
 .ytba-control.active { background: #2867d6; border-color: #4b8cff; }
-.ytba-control select { color: inherit; background: transparent; border: 0; outline: 0; font-size: inherit; }
+/* Moon Begin: keep native select menus legible in Chrome's light OS theme. */
+.ytba-control select { color:#f3f6ff; background:#252a35; color-scheme:dark; border:1px solid #565f70; border-radius:4px; outline:0; padding:2px 5px; font-size:inherit; cursor:pointer; }
+.ytba-control select:hover, .ytba-control select:focus { border-color:#729dff; background:#2d3442; }
+.ytba-control select option { color:#f3f6ff; background:#252a35; }
+/* Moon End */
 .ytba-progress { height: 5px; background: #343945; margin-top: 8px; border-radius: 9px; overflow: hidden; }
 .ytba-progress > div { height: 100%; background: #4b8cff; transition: width .25s; }
 .ytba-tabs { display: flex; border-bottom: 1px solid #333842; }
@@ -51,6 +55,7 @@
 .ytba-live-dot[hidden] { display:none; }
 @keyframes ytba-live { 70% { box-shadow:0 0 0 7px rgba(90,145,255,0); } 100% { box-shadow:0 0 0 0 rgba(90,145,255,0); } }
 .ytba-stream-heading { color:#9fc0ff; font-size:12px; letter-spacing:.4px; margin:3px 0 12px; }
+.ytba-summary-check { display:inline-grid; width:18px; height:18px; margin-right:5px; place-items:center; color:#10271d; background:#4fd59a; border-radius:50%; font-weight:900; box-shadow:0 0 10px rgba(79,213,154,.3); }
 .ytba-stream-text { color:#e9edf6; line-height:1.75; white-space:normal; }
 .ytba-stream-text p { margin:0 0 8px; }
 .ytba-stream-section { margin:15px 0 8px; color:#fff; font-size:15px; font-weight:650; }
