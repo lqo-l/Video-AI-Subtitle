@@ -19,7 +19,7 @@ body.ytba-panel-left #ytba-root.ytba-collapsed .ytba-edge-handle:hover { transfo
 .ytba-resize-handle:hover::after, body.ytba-panel-resizing .ytba-resize-handle::after { opacity:.85; }
 body.ytba-panel-left .ytba-resize-handle { left:auto; right:-5px; }
 body.ytba-panel-resizing { cursor:ew-resize !important; user-select:none !important; }
-body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, body.ytba-panel-resizing #app { transition:none !important; }
+body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, body.ytba-panel-resizing #mirror-vdcon.video-container-v1 { transition:none !important; }
 .ytba-head { min-height:58px;padding: 10px 14px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333842; }
 .ytba-brand { min-width:0;flex:1;display:flex;align-items:center;gap:9px; }
 .ytba-brand > span:last-child { min-width:0;display:flex;flex-direction:column; }
@@ -146,18 +146,17 @@ body:has(.html5-video-player.ytp-fullscreen) #page-manager { margin-right:0; mar
 body.ytba-site-bilibili:not(.ytba-fullscreen) #ytba-root { top:var(--ytba-site-header-offset,64px);height:calc(100vh - var(--ytba-site-header-offset,64px)); }
 body.ytba-site-bilibili.ytba-fullscreen #ytba-root { top:0;height:100vh; }
 body.ytba-site-bilibili #ytba-root.ytba-collapsed { height:136px; }
-body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-right #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-right:var(--ytba-panel-width,390px); margin-left:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
-body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-left:var(--ytba-panel-width,390px); margin-right:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
-/* Moon Begin: #app contains Bilibili's navbar. Counter the app reflow for that
-   one element so it remains full-window while only the content below is pushed. */
-body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open:not(.ytba-panel-collapsed):not(.ytba-fullscreen) #bili-header-container,
-body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open:not(.ytba-panel-collapsed):not(.ytba-fullscreen) header.bili-header { width:100vw !important;max-width:none !important; }
-body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left:not(.ytba-panel-collapsed):not(.ytba-fullscreen) #bili-header-container,
-body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left:not(.ytba-panel-collapsed):not(.ytba-fullscreen) header.bili-header { margin-left:calc(-1 * var(--ytba-panel-width,390px)) !important; }
+/* Moon Begin: keep #app and its navbar untouched. Only the content container
+   below the 64px header participates in normal-page push layout. */
+body.ytba-site-bilibili.ytba-panel-open #mirror-vdcon.video-container-v1 { transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1);will-change:width,margin;box-sizing:border-box; }
+body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-right:not(.ytba-panel-collapsed):not(.ytba-fullscreen) #mirror-vdcon.video-container-v1 { width:calc(100% - var(--ytba-panel-width,390px));margin-left:0;margin-right:var(--ytba-panel-width,390px); }
+body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left:not(.ytba-panel-collapsed):not(.ytba-fullscreen) #mirror-vdcon.video-container-v1 { width:calc(100% - var(--ytba-panel-width,390px));margin-left:var(--ytba-panel-width,390px);margin-right:0; }
+body.ytba-site-bilibili.ytba-panel-open.ytba-panel-collapsed #mirror-vdcon.video-container-v1,
+body.ytba-site-bilibili.ytba-panel-open.ytba-fullscreen #mirror-vdcon.video-container-v1 { width:100%;margin-left:0;margin-right:0; }
 /* Moon End */
-body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-collapsed #app, body.ytba-site-bilibili.ytba-panel-open.ytba-fullscreen #app { width:100%; margin-right:0; margin-left:0; }
 body.ytba-site-bilibili .bpx-player-container, body.ytba-site-bilibili .bilibili-player { position:relative; }
-body.ytba-site-bilibili.ytba-panel-open:has(.bpx-state-fullscreen) #app, body.ytba-site-bilibili.ytba-panel-open.webscreen-fix #app { width:100%; margin-right:0; margin-left:0; }
+body.ytba-site-bilibili.ytba-panel-open:has(.bpx-state-fullscreen) #mirror-vdcon.video-container-v1,
+body.ytba-site-bilibili.ytba-panel-open.webscreen-fix #mirror-vdcon.video-container-v1 { width:100%;margin-right:0;margin-left:0; }
 body.ytba-site-bilibili:has(.bpx-state-fullscreen) #ytba-root { top:0; height:100vh; }
 /* Moon Begin: full-screen overlay is the default; push mode shrinks the actual
    video/control area while keeping the browser's fullscreen host at 100%. */
