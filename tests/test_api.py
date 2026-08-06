@@ -95,3 +95,31 @@ def test_clear_cache_preserves_config(tmp_path, monkeypatch):
     assert response.json()["removed"] == 2
     assert list(cache_dir.glob("*.json")) == []
     assert config_path.exists()
+
+
+# Moon Begin: advanced config and lifecycle endpoints retain a stable API contract.
+def test_advanced_config_fields_round_trip(monkeypatch):
+    payload = {
+        "base_url": "https://example.com/v1", "api_key": "secret",
+        "translation_model": "translator", "summary_model": "summary",
+        "whisper_model": "small", "whisper_model_path": "D:/models/whisper-small",
+        "whisper_download_source": "mirror", "device": "auto",
+    }
+    monkeypatch.setattr(main, "save_config", lambda config: None)
+    response = TestClient(app).put("/config", json=payload)
+    assert response.status_code == 200
+    assert response.json()["whisper_model_path"] == "D:/models/whisper-small"
+    assert response.json()["whisper_download_source"] == "mirror"
+
+
+def test_job_control_endpoints(monkeypatch):
+    job = JobView(id="control", state="running", stage="翻译", progress=60)
+    main.JOBS["control"] = job
+    monkeypatch.setattr(main, "pause_job", lambda _: job.model_copy(update={"state":"paused"}))
+    monkeypatch.setattr(main, "resume_job", lambda _: job)
+    monkeypatch.setattr(main, "cancel_job", lambda _: job.model_copy(update={"state":"cancelled"}))
+    test_client = TestClient(app)
+    assert test_client.post("/jobs/control/pause").json()["state"] == "paused"
+    assert test_client.post("/jobs/control/resume").json()["state"] == "running"
+    assert test_client.post("/jobs/control/cancel").json()["state"] == "cancelled"
+# Moon End

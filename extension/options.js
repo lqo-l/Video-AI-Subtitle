@@ -1,16 +1,50 @@
+// Moon Begin
 const API="http://127.0.0.1:18765";
-const fields=["base_url","translation_model","summary_model","whisper_model","device"];
-// Moon Begin: represent an existing secret without returning it to the extension.
+const fields=["base_url","translation_model","summary_model","whisper_model","whisper_model_path","whisper_download_source","device"];
 const KEY_PLACEHOLDER="••••••••";
-chrome.runtime.sendMessage({type:"ensure-service"}).then(response=>{
-  if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");
-  return new Promise(resolve=>setTimeout(resolve,500));
-}).then(()=>fetch(`${API}/config`)).then(r=>r.json()).then(data=>{
-  fields.forEach(x=>document.getElementById(x).value=data[x]);
+let modelPoll=null;
+const byId=id=>document.getElementById(id);
+const humanSize=value=>value?`${(value/1024/1024).toFixed(1)} MB`:"0 MB";
+
+async function ensureService(){const response=await chrome.runtime.sendMessage({type:"ensure-service"});if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));}
+async function request(path,options={}){const response=await fetch(`${API}${path}`,options);if(!response.ok)throw new Error((await response.json().catch(()=>null))?.detail||`服务错误 ${response.status}`);return response.json();}
+function renderModel(data){
+  model_stage.textContent=data.stage+(data.source?` · ${data.source}`:"");
+  model_percent.textContent=`${data.progress||0}%`;
+  model_bar.style.width=`${data.progress||0}%`;
+  const transfer=data.total?`${humanSize(data.downloaded)} / ${humanSize(data.total)}${data.speed?` · ${humanSize(data.speed)}/s`:""}`:"";
+  model_detail.textContent=[data.resolved_path||data.configured_path||"未找到可用模型",transfer,data.error].filter(Boolean).join(" · ");
+  if(data.state==="running"){clearTimeout(modelPoll);modelPoll=setTimeout(checkModel,700);}
+}
+async function checkModel(){try{renderModel(await request("/models/status"));}catch(error){model_stage.textContent=`检查失败：${error.message}`;}}
+
+ensureService().then(()=>request("/config")).then(async data=>{
+  fields.forEach(id=>byId(id).value=data[id]??"");
   if(data.api_key_configured){api_key.value=KEY_PLACEHOLDER;api_key.dataset.configured="true";}
-}).catch(()=>message.textContent="请先启动本机服务");
+  const stored=await chrome.storage.local.get({panelPrefs:{opacity:.94}});
+  panel_opacity.value=Math.round((stored.panelPrefs?.opacity??.94)*100);opacity_value.value=`${panel_opacity.value}%`;
+  checkModel();
+}).catch(error=>message.textContent=`无法读取设置：${error.message}`);
+
 api_key.onfocus=()=>{if(api_key.value===KEY_PLACEHOLDER)api_key.value="";};
 api_key.onblur=()=>{if(!api_key.value&&api_key.dataset.configured==="true")api_key.value=KEY_PLACEHOLDER;};
+panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
+check_model.onclick=checkModel;
+download_model.onclick=async()=>{try{download_model.disabled=true;renderModel(await request("/models/download",{method:"POST"}));}catch(error){model_stage.textContent=`下载失败：${error.message}`;}finally{download_model.disabled=false;}};
 reset_translation.onclick=()=>{translation_model.value="deepseek-v4-flash";message.textContent="已恢复默认值，请点击保存设置";};
 window.addEventListener("beforeunload",()=>chrome.runtime.sendMessage({type:"release-service"}));
-form.onsubmit=async event=>{event.preventDefault();message.textContent="保存中…";try{const native=await chrome.runtime.sendMessage({type:"ensure-service"});if(!native?.ok)throw new Error(native?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));const data=Object.fromEntries(fields.map(x=>[x,document.getElementById(x).value]));data.api_key=api_key.value===KEY_PLACEHOLDER?"":api_key.value;const r=await fetch(`${API}/config`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});if(!r.ok)throw new Error((await r.json()).detail);const saved=await r.json();message.textContent="已保存";if(saved.api_key_configured){api_key.value=KEY_PLACEHOLDER;api_key.dataset.configured="true";}chrome.runtime.sendMessage({type:"release-service"});}catch(e){message.textContent=`失败:${e.message}`;}};// Moon End
+form.onsubmit=async event=>{
+  event.preventDefault();message.textContent="保存中…";
+  try{
+    await ensureService();
+    const data=Object.fromEntries(fields.map(id=>[id,byId(id).value]));
+    data.api_key=api_key.value===KEY_PLACEHOLDER?"":api_key.value;
+    const saved=await request("/config",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+    const stored=await chrome.storage.local.get({panelPrefs:{}});
+    await chrome.storage.local.set({panelPrefs:{...stored.panelPrefs,opacity:Number(panel_opacity.value)/100}});
+    message.textContent="已保存并应用";
+    if(saved.api_key_configured){api_key.value=KEY_PLACEHOLDER;api_key.dataset.configured="true";}
+    checkModel();
+  }catch(error){message.textContent=`保存失败：${error.message}`;}
+};
+// Moon End

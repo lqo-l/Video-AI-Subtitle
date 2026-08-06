@@ -21,4 +21,5 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
 Write-Host "依赖安装完成。" -ForegroundColor Green
 Write-Host "加载 Chrome 扩展后，请复制扩展 ID 并运行："
 Write-Host '.\scripts\install-native-host.ps1 -ExtensionId "你的扩展ID"' -ForegroundColor Cyan
-Write-Host "首次使用 Whisper 时会自动下载所选模型。"
+Write-Host "可在扩展的“更多设置”中预下载 Whisper，或提前执行："
+Write-Host '.\scripts\download-model.ps1 -Model small -Source auto' -ForegroundColor Cyan

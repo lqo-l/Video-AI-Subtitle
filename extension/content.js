@@ -18,7 +18,7 @@
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
   // Moon Add: persist the sidebar edge and user-selected width across videos.
-  const defaultPanelPrefs = {side:"right", width:390, fullscreenMode:"overlay"};
+  const defaultPanelPrefs = {side:"right", width:390, layoutMode:"overlay", opacity:.94};
   let panelPrefs = {...defaultPanelPrefs};
   const site = location.hostname.includes("bilibili.com") ? "bilibili" : "youtube";
 
@@ -90,12 +90,14 @@
     if (root) return root;
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手" aria-label="展开字幕助手"><span class="ytba-edge-mark">译</span><i aria-hidden="true">‹</i></button><div class="ytba-resize-handle" data-resize title="拖拽调整侧栏宽度"></div><div class="ytba-head"><strong>AI 双语字幕助手</strong><button class="ytba-button secondary" data-retry title="从上次缓存继续">↻ 重试</button><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary ytba-collapse" data-close title="收缩侧栏">&gt;</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-side title="将侧栏移到左侧">移到左侧</button><button class="ytba-control" data-fullscreen-mode title="切换全屏侧栏布局">全屏：覆盖</button><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手" aria-label="展开字幕助手"><span class="ytba-edge-mark">译</span><i aria-hidden="true">‹</i></button><div class="ytba-resize-handle" data-resize title="拖拽调整侧栏宽度"></div><div class="ytba-head"><strong>AI 双语字幕助手</strong><button class="ytba-icon-button" data-retry title="从缓存继续" aria-label="重试">↻</button><button class="ytba-icon-button ytba-collapse" data-close title="收缩侧栏" aria-label="收缩侧栏">&gt;</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div><div class="ytba-task-actions"><button data-task="pause">暂停</button><button data-task="cancel">取消</button></div></div><div class="ytba-primary-tools"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control ytba-language">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select></label><button class="ytba-control" data-layout-mode>布局：覆盖</button><details class="ytba-tools-menu"><summary title="更多工具">•••</summary><div class="ytba-tools-popover"><button class="ytba-control" data-side>移到左侧</button><button class="ytba-control" data-control="smaller">字号 −</button><button class="ytba-control" data-control="larger">字号 ＋</button><button class="ytba-control" data-control="up">字幕上移</button><button class="ytba-control" data-control="down">字幕下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-export disabled>导出 Markdown</button><button class="ytba-control" data-control="reset">恢复显示默认值</button></div></details></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
     // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
     root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
     root.querySelector("[data-expand]").onclick = event => { event.stopPropagation(); setPanelCollapsed(false); };
     root.querySelector("[data-side]").onclick = () => updatePanelPrefs({side:panelPrefs.side==="right"?"left":"right"});
-    root.querySelector("[data-fullscreen-mode]").onclick = () => updatePanelPrefs({fullscreenMode:panelPrefs.fullscreenMode==="overlay"?"push":"overlay"});
+    root.querySelector("[data-layout-mode]").onclick = () => updatePanelPrefs({layoutMode:panelPrefs.layoutMode==="overlay"?"push":"overlay"});
+    root.querySelector('[data-task="pause"]').onclick = toggleJobPause;
+    root.querySelector('[data-task="cancel"]').onclick = cancelCurrentJob;
     bindPanelResize(root);
     root.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => renderTab(button.dataset.tab));
     root.querySelector("[data-retry]").onclick = retryFromCheckpoint;
@@ -243,20 +245,22 @@
 
   function applyPanelPrefs() {
     panelPrefs.side=panelPrefs.side==="left"?"left":"right";
-    panelPrefs.fullscreenMode=panelPrefs.fullscreenMode==="push"?"push":"overlay";
+    panelPrefs.layoutMode=(panelPrefs.layoutMode||panelPrefs.fullscreenMode)==="push"?"push":"overlay";
+    panelPrefs.opacity=Math.min(1,Math.max(.72,Number(panelPrefs.opacity)||defaultPanelPrefs.opacity));
     panelPrefs.width=clampPanelWidth(Number(panelPrefs.width)||defaultPanelPrefs.width);
     document.body.style.setProperty("--ytba-panel-width",`${panelPrefs.width}px`);
+    document.body.style.setProperty("--ytba-panel-opacity",panelPrefs.opacity);
     document.body.classList.toggle("ytba-panel-left",panelPrefs.side==="left");
     document.body.classList.toggle("ytba-panel-right",panelPrefs.side==="right");
-    document.body.classList.toggle("ytba-fullscreen-mode-push",panelPrefs.fullscreenMode==="push");
+    document.body.classList.toggle("ytba-layout-push",panelPrefs.layoutMode==="push");
     const root=document.querySelector("#ytba-root");
     if(!root)return;
     const sideButton=root.querySelector("[data-side]");
     sideButton.textContent=panelPrefs.side==="right"?"移到左侧":"移到右侧";
     sideButton.title=`将侧栏移到${panelPrefs.side==="right"?"左":"右"}侧`;
-    const fullscreenButton=root.querySelector("[data-fullscreen-mode]");
-    fullscreenButton.textContent=`全屏：${panelPrefs.fullscreenMode==="push"?"挤压":"覆盖"}`;
-    fullscreenButton.classList.toggle("active",panelPrefs.fullscreenMode==="push");
+    const layoutButton=root.querySelector("[data-layout-mode]");
+    layoutButton.textContent=`布局：${panelPrefs.layoutMode==="push"?"挤压":"覆盖"}`;
+    layoutButton.classList.toggle("active",panelPrefs.layoutMode==="push");
     root.querySelector("[data-close]").textContent=panelPrefs.side==="right"?">":"<";
     root.querySelector(".ytba-edge-handle i").textContent=panelPrefs.side==="right"?"‹":"›";
   }
@@ -318,6 +322,31 @@
     if (spinner) spinner.style.display = done ? "none" : "inline-block";
   }
 
+  // Moon Begin: compact task controls share the checkpoint-aware service lifecycle.
+  function refreshTaskControls() {
+    const root=document.querySelector("#ytba-root");if(!root)return;
+    const pause=root.querySelector('[data-task="pause"]');
+    const cancel=root.querySelector('[data-task="cancel"]');
+    const active=Boolean(job&&["queued","running","paused"].includes(job.state));
+    pause.hidden=!active;cancel.hidden=!active;
+    pause.textContent=job?.state==="paused"?"继续":"暂停";
+    pause.classList.toggle("active",job?.state==="paused");
+  }
+
+  async function toggleJobPause(){
+    if(!job)return;
+    const action=job.state==="paused"?"resume":"pause";
+    try{job=await api(`/jobs/${job.id}/${action}`,{method:"POST"});refreshTaskControls();updateStatus(job.stage,job.progress);if(action==="resume")poll();}
+    catch(error){updateStatus("任务控制失败",job.progress,error.message);}
+  }
+
+  async function cancelCurrentJob(){
+    if(!job||!confirm("取消当前任务？已完成的字幕、翻译与摘要进度会保留，可稍后重试。"))return;
+    try{job=await api(`/jobs/${job.id}/cancel`,{method:"POST"});clearTimeout(pollTimer);refreshTaskControls();updateStatus(job.stage,job.progress);safeSendMessage({type:"release-service"});}
+    catch(error){updateStatus("取消失败",job.progress,error.message);}
+  }
+  // Moon End
+
   async function start() {
     const player = video();
     if (player) { player.pause(); player.currentTime = 0; }
@@ -358,6 +387,7 @@
   async function poll() {
     try {
       job = await api(`/jobs/${job.id}`);
+      refreshTaskControls();
       const liveStage = job.translated_segments > 0 && job.state === "running"
         ? `已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`
         : job.stage;
@@ -393,8 +423,10 @@
         root.classList.add("ytba-completed");
         safeSendMessage({type:"notify", message:`《${result.title}》处理完成，请手动播放。`});
         safeSendMessage({type:"release-service"});
-      } else if (job.state === "failed") {
+      } else if (["failed","cancelled"].includes(job.state)) {
         safeSendMessage({type:"release-service"});
+      } else if (job.state === "paused") {
+        pollTimer=setTimeout(poll,1500);
       } else if (job.state !== "failed") {
         const fastPoll = job.stage.startsWith("翻译中文字幕") || job.stage.includes("生成摘要"); pollTimer = setTimeout(poll, fastPoll ? 750 : 1500);
       }
@@ -496,12 +528,14 @@
   }
 
   chrome.runtime.onMessage.addListener(message => { if (message.type === "start") start(); if (message.type === "open") ensurePanel(); });
+  // Moon Add: apply settings-page appearance changes without reloading the video.
+  chrome.storage.onChanged.addListener((changes,area)=>{if(area==="local"&&changes.panelPrefs){panelPrefs={...defaultPanelPrefs,...changes.panelPrefs.newValue};panelPrefs.layoutMode=panelPrefs.layoutMode||panelPrefs.fullscreenMode||"overlay";applyPanelPrefs();}});
   document.addEventListener("fullscreenchange",updateFullscreenLayout);
   // Moon Add: Bilibili web-fullscreen only toggles a body class, so react
   // immediately instead of waiting for the navigation polling interval.
   new MutationObserver(updateFullscreenLayout).observe(document.body,{attributes:true,attributeFilter:["class"]});
   updateFullscreenLayout();
-  chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs,panelPrefs:defaultPanelPrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};panelPrefs={...defaultPanelPrefs,...data.panelPrefs};if(subtitlePrefs.language==="en")subtitlePrefs.language="source";applyPanelPrefs();applySubtitlePrefs();refreshSubtitleControls();});
+  chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs,panelPrefs:defaultPanelPrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};panelPrefs={...defaultPanelPrefs,...data.panelPrefs};panelPrefs.layoutMode=panelPrefs.layoutMode||panelPrefs.fullscreenMode||"overlay";delete panelPrefs.fullscreenMode;if(subtitlePrefs.language==="en")subtitlePrefs.language="source";applyPanelPrefs();applySubtitlePrefs();refreshSubtitleControls();});
   setInterval(()=>{watchNavigation();updateFullscreenLayout();}, 1000);
   watchNavigation();
 })();

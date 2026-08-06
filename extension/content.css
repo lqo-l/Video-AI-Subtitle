@@ -1,4 +1,4 @@
-#ytba-root { position: fixed; top: 64px; right: 0; width: var(--ytba-panel-width,390px); height: calc(100vh - 64px); z-index: 2147483640; background: #111318; color: #f2f4f8; border-left: 1px solid #333842; box-shadow: -8px 0 24px #0008; font: 14px/1.5 Arial, sans-serif; display: flex; flex-direction: column; transform: translate3d(0,0,0); transition: transform .34s cubic-bezier(.22,.8,.25,1), box-shadow .34s ease; will-change: transform; }
+#ytba-root { position: fixed; top: 64px; right: 0; width: var(--ytba-panel-width,390px); height: calc(100vh - 64px); z-index: 2147483640; background: rgba(17,19,24,var(--ytba-panel-opacity,.94)); backdrop-filter:blur(14px); color: #f2f4f8; border-left: 1px solid #333842; box-shadow: -8px 0 24px #0008; font: 14px/1.5 Arial, sans-serif; display: flex; flex-direction: column; transform: translate3d(0,0,0); transition: transform .34s cubic-bezier(.22,.8,.25,1), box-shadow .34s ease; will-change: transform; }
 /* Moon Begin: slide the fixed-width panel and page content on one animation track. */
 #ytba-root.ytba-collapsed { width:44px; height:136px; transform:none; background:transparent !important; border-color:transparent; box-shadow:none !important; pointer-events:none; }
 body.ytba-panel-left #ytba-root { left:0; right:auto; border-left:0; border-right:1px solid #333842; box-shadow:8px 0 24px #0008; }
@@ -22,6 +22,8 @@ body.ytba-panel-resizing { cursor:ew-resize !important; user-select:none !import
 body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, body.ytba-panel-resizing #app { transition:none !important; }
 .ytba-head { padding: 12px 14px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333842; }
 .ytba-head strong { flex: 1; }
+.ytba-icon-button { display:grid;place-items:center;width:30px;height:30px;padding:0;color:#dce5f6;background:#2d3441;border:1px solid #414b5c;border-radius:8px;font-size:17px;cursor:pointer;transition:.2s ease; }
+.ytba-icon-button:hover { color:#fff;background:#3a4659;border-color:#668bd2;transform:translateY(-1px); }
 .ytba-button { color: #fff; background: #2867d6; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
 .ytba-button.secondary { background: #343945; }
 .ytba-button:disabled { opacity:.5; cursor:wait; }
@@ -36,7 +38,18 @@ body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, bod
 @keyframes ytba-wave { 0%,100% { height: 4px; opacity:.55; } 45% { height: 15px; opacity:1; filter:drop-shadow(0 0 4px #6f8fff); } }
 .ytba-progress-indeterminate { width: 34% !important; background:linear-gradient(90deg,#477eff,#9b72ff,#53c7ff) !important; animation: ytba-progress-glide 1.75s cubic-bezier(.4,0,.2,1) infinite; border-radius: 9px; box-shadow:0 0 10px rgba(105,132,255,.55); }
 @keyframes ytba-progress-glide { 0% { transform:translateX(-115%); opacity:.45; } 45% { opacity:1; } 100% { transform:translateX(300%); opacity:.45; } }
-.ytba-controls { padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid #333842; }
+.ytba-primary-tools { position:relative;padding:9px 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #333842; }
+.ytba-primary-tools .ytba-language { flex:1;display:flex;align-items:center;gap:4px; }
+.ytba-primary-tools .ytba-language select { min-width:0;flex:1; }
+.ytba-tools-menu { position:relative; }
+.ytba-tools-menu summary { display:grid;place-items:center;width:32px;height:29px;color:#e8ebf0;background:#343945;border:1px solid #4a5160;border-radius:6px;cursor:pointer;list-style:none;font-weight:700;letter-spacing:1px; }
+.ytba-tools-menu summary::-webkit-details-marker { display:none; }
+.ytba-tools-popover { position:absolute;z-index:8;right:0;top:36px;width:205px;padding:9px;display:grid;grid-template-columns:1fr 1fr;gap:7px;background:rgba(25,29,37,.98);border:1px solid #454f61;border-radius:10px;box-shadow:0 12px 30px #0009; }
+.ytba-tools-popover .ytba-control { text-align:left; }
+.ytba-task-actions { display:flex;gap:7px;margin-top:9px;padding-left:36px; }
+.ytba-task-actions button { padding:4px 11px;color:#c9d3e3;background:transparent;border:1px solid #465063;border-radius:6px;font-size:12px;cursor:pointer; }
+.ytba-task-actions button:hover,.ytba-task-actions button.active { color:#fff;background:#33415a;border-color:#638be0; }
+.ytba-task-actions button[hidden] { display:none; }
 .ytba-completed .ytba-status { background: linear-gradient(135deg, #1a3a2e, #13271c); }
 .ytba-completed .ytba-progress > div { background: #34d399; }
 .ytba-completed .ytba-pulse { display: none !important; }
@@ -88,8 +101,8 @@ body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, bod
 #ytba-overlay.ytba-overlay-background { background: rgba(0,0,0,.58); border-radius: 8px; padding: 8px 12px; }
 #ytba-prompt { position: fixed; z-index: 2147483641; right: 24px; top: 84px; width: 330px; background: #181b22; color: #fff; padding: 16px; border: 1px solid #3b4350; border-radius: 10px; box-shadow: 0 12px 35px #0009; }
 #ytba-prompt .actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
-body.ytba-panel-open.ytba-panel-right #page-manager { width:calc(100% - var(--ytba-panel-width,390px)); margin-right:var(--ytba-panel-width,390px); margin-left:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); will-change:width,margin; }
-body.ytba-panel-open.ytba-panel-left #page-manager { width:calc(100% - var(--ytba-panel-width,390px)); margin-left:var(--ytba-panel-width,390px); margin-right:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); will-change:width,margin; }
+body.ytba-layout-push.ytba-panel-open.ytba-panel-right #page-manager { width:calc(100% - var(--ytba-panel-width,390px)); margin-right:var(--ytba-panel-width,390px); margin-left:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); will-change:width,margin; }
+body.ytba-layout-push.ytba-panel-open.ytba-panel-left #page-manager { width:calc(100% - var(--ytba-panel-width,390px)); margin-left:var(--ytba-panel-width,390px); margin-right:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); will-change:width,margin; }
 body.ytba-panel-open #columns { margin-right: 0; }
 body.ytba-panel-open.ytba-panel-collapsed #page-manager, body.ytba-panel-open.ytba-fullscreen #page-manager { width:100%; margin-right:0; margin-left:0; }
 body.ytba-panel-collapsed #columns, body.ytba-fullscreen #columns { margin-right: 0; }
@@ -102,8 +115,8 @@ body:has(.html5-video-player.ytp-fullscreen) #page-manager { margin-right:0; mar
 /* Moon Begin: Bilibili uses different page/player containers. */
 body.ytba-site-bilibili #ytba-root { top:0; height:100vh; }
 body.ytba-site-bilibili #ytba-root.ytba-collapsed { height:136px; }
-body.ytba-site-bilibili.ytba-panel-open.ytba-panel-right #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-right:var(--ytba-panel-width,390px); margin-left:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
-body.ytba-site-bilibili.ytba-panel-open.ytba-panel-left #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-left:var(--ytba-panel-width,390px); margin-right:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
+body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-right #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-right:var(--ytba-panel-width,390px); margin-left:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
+body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-left:var(--ytba-panel-width,390px); margin-right:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
 body.ytba-site-bilibili.ytba-panel-open.ytba-panel-collapsed #app, body.ytba-site-bilibili.ytba-panel-open.ytba-fullscreen #app { width:100%; margin-right:0; margin-left:0; }
 body.ytba-site-bilibili .bpx-player-container, body.ytba-site-bilibili .bilibili-player { position:relative; }
 body.ytba-site-bilibili.ytba-panel-open:has(.bpx-state-fullscreen) #app, body.ytba-site-bilibili.ytba-panel-open.webscreen-fix #app { width:100%; margin-right:0; margin-left:0; }
@@ -111,14 +124,14 @@ body.ytba-site-bilibili:has(.bpx-state-fullscreen) #ytba-root { top:0; height:10
 /* Moon Begin: full-screen overlay is the default; push mode shrinks the actual
    video/control area while keeping the browser's fullscreen host at 100%. */
 .ytba-fullscreen-host { overflow:visible !important; }
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host > .bpx-player-primary-area { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:var(--ytba-panel-width,390px) !important; }
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-right .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:0 !important; }
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .html5-video-container,
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-chrome-bottom,
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-gradient-bottom { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .html5-video-container,
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-chrome-bottom,
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-gradient-bottom { margin-left:var(--ytba-panel-width,390px) !important; }
+body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host > .bpx-player-primary-area { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
+body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:var(--ytba-panel-width,390px) !important; }
+body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-right .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:0 !important; }
+body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .html5-video-container,
+body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-chrome-bottom,
+body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-gradient-bottom { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
+body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .html5-video-container,
+body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-chrome-bottom,
+body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-gradient-bottom { margin-left:var(--ytba-panel-width,390px) !important; }
 /* Moon End */
 /* Moon End */

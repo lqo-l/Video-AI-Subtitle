@@ -18,16 +18,37 @@ from faster_whisper import WhisperModel
 
 from .config import CACHE_DIR, WORK_DIR, load_config
 from .llm import LlmClient
-from .models import JobView, ProcessedVideo, Segment
+from .models import JobView, ModelStatus, ProcessedVideo, Segment
 
 
 JOBS: dict[str, JobView] = {}
+JOB_TASKS: dict[str, asyncio.Task] = {}  # Moon Add
+JOB_CONTROLS: dict[str, "JobControl"] = {}  # Moon Add
+MODEL_DOWNLOAD: ModelStatus | None = None  # Moon Add
+MODEL_DOWNLOAD_TASK: asyncio.Task | None = None  # Moon Add
 CACHE_SCHEMA_VERSION = 2  # Moon Add: invalidate pre-normalization subtitle caches.
 SUPPORTED_LANGUAGES = ("en", "ja", "zh")
 WHISPER_MODEL_ENDPOINTS = (
     ("HF 镜像", "https://hf-mirror.com"),
     ("Hugging Face 官方源", "https://huggingface.co"),
 )  # Moon Add: prefer the mainland-friendly mirror and fall back automatically.
+
+
+# Moon Begin: cooperative controls preserve checkpoints at translation/summary boundaries.
+class JobControl:
+    def __init__(self) -> None:
+        self.resume_event = asyncio.Event()
+        self.resume_event.set()
+        self.cancelled = False
+        self.previous_stage = ""
+
+    async def checkpoint(self) -> None:
+        if self.cancelled:
+            raise asyncio.CancelledError
+        await self.resume_event.wait()
+        if self.cancelled:
+            raise asyncio.CancelledError
+# Moon End
 
 
 def _write_json_atomic(path: Path, data: dict) -> None:
@@ -227,6 +248,8 @@ def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | No
 def _prepare_whisper_model(
     model_name: str,
     progress_callback: Callable[[int, int, int, float, str], None] | None = None,
+    model_path: str = "",
+    download_source: str = "auto",
 ) -> str:
     """Download selected model once and report byte-based first-run progress."""
     # Moon Begin
@@ -236,6 +259,20 @@ def _prepare_whisper_model(
 
     model_name = model_name.removesuffix(".en")
     repo_id = model_name if "/" in model_name else f"Systran/faster-whisper-{model_name}"
+    # Moon Add: an explicitly configured local model always wins and never contacts HF.
+    configured_model = Path(model_path).expanduser() if model_path.strip() else None
+    if configured_model:
+        missing = [name for name in ("config.json", "model.bin", "tokenizer.json") if not (configured_model / name).is_file()]
+        if missing:
+            raise RuntimeError(f"自定义模型路径不可用，缺少：{', '.join(missing)}")
+        size = (configured_model / "model.bin").stat().st_size
+        if progress_callback:
+            progress_callback(100, size, size, 0, "自定义本机路径")
+        return str(configured_model.resolve())
+
+    # Moon Add: respect the optional source preference while retaining fallback in auto mode.
+    endpoint_map = {"mirror": WHISPER_MODEL_ENDPOINTS[0], "official": WHISPER_MODEL_ENDPOINTS[1]}
+    model_endpoints = WHISPER_MODEL_ENDPOINTS if download_source == "auto" else (endpoint_map.get(download_source, WHISPER_MODEL_ENDPOINTS[0]),)
     # A complete standard cache must never perform a network request or wait
     # for a stale Hugging Face lock left by an interrupted download.
     standard_repo = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}"
@@ -278,7 +315,7 @@ def _prepare_whisper_model(
         downloaded = partial_model.stat().st_size
         probe = None
         source_name = ""
-        for candidate_source, endpoint in WHISPER_MODEL_ENDPOINTS:
+        for candidate_source, endpoint in model_endpoints:
             candidate_url = f"{endpoint}/{repo_id}/resolve/main/model.bin"
             for _ in range(2):
                 try:
@@ -348,7 +385,7 @@ def _prepare_whisper_model(
         "tokenizer.json", "vocabulary.*",
     ]
     reported_percent = 0
-    active_source = WHISPER_MODEL_ENDPOINTS[0][0]
+    active_source = model_endpoints[0][0]
     progress_started = time.monotonic()
 
     class DownloadProgress(tqdm):
@@ -384,15 +421,17 @@ def _prepare_whisper_model(
         download_options["local_dir"] = legacy_model_dir
     try:
         model_path = snapshot_download(
-            repo_id, endpoint=WHISPER_MODEL_ENDPOINTS[0][1], **download_options
+            repo_id, endpoint=model_endpoints[0][1], **download_options
         )
     except Exception:
         # Moon Add: mirror outages must not make first-time setup impossible.
-        active_source = WHISPER_MODEL_ENDPOINTS[1][0]
+        if len(model_endpoints) < 2:
+            raise
+        active_source = model_endpoints[1][0]
         if progress_callback:
             progress_callback(0, 0, 0, 0, active_source)
         model_path = snapshot_download(
-            repo_id, endpoint=WHISPER_MODEL_ENDPOINTS[1][1], **download_options
+            repo_id, endpoint=model_endpoints[1][1], **download_options
         )
     if progress_callback:
         model_file = Path(model_path) / "model.bin"
@@ -407,21 +446,28 @@ def _transcribe(
     model_name: str,
     device_setting: str,
     download_progress: Callable[[int, int, int, float, str], None] | None = None,
+    model_path: str = "",
+    download_source: str = "auto",
 ) -> tuple[list[Segment], str]:
     import ctranslate2
 
     model_name = model_name.removesuffix(".en")  # Moon Add: require multilingual weights.
-    model_path = _prepare_whisper_model(model_name, download_progress)  # Moon Add
+    # Moon Modified: keep the legacy two-argument call for default discovery and tests.
+    prepared_model = (
+        _prepare_whisper_model(model_name, download_progress, model_path, download_source)
+        if model_path or download_source != "auto"
+        else _prepare_whisper_model(model_name, download_progress)
+    )
     device = device_setting
     if device == "auto":
         device = "cuda" if ctranslate2.get_cuda_device_count() else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
     try:
-        model = WhisperModel(model_path, device=device, compute_type=compute_type)
+        model = WhisperModel(prepared_model, device=device, compute_type=compute_type)
     except Exception:
         if device_setting != "auto" or device == "cpu":
             raise
-        model = WhisperModel(model_path, device="cpu", compute_type="int8")
+        model = WhisperModel(prepared_model, device="cpu", compute_type="int8")
     items, info = model.transcribe(str(audio), language=None, vad_filter=True, beam_size=5)
     language = info.language if info.language in SUPPORTED_LANGUAGES else ""
     if not language:
@@ -434,6 +480,7 @@ def _transcribe(
 
 async def process_job(job_id: str, url: str) -> None:
     job = JOBS[job_id]
+    control = JOB_CONTROLS.setdefault(job_id, JobControl())  # Moon Add
     video_id = video_id_from_url(url)
     platform = platform_from_url(url)
     job.platform = platform
@@ -495,6 +542,7 @@ async def process_job(job_id: str, url: str) -> None:
         try:
             job.state, job.stage, job.progress = "running", "读取视频信息与字幕", 8
             info, extracted, audio = await asyncio.to_thread(_download, url, temp)
+            await control.checkpoint()
             source = info.get("_ytba_source", f"{platform}_subtitles")
             source_language = info.get("_ytba_language", "en")
             if not extracted:
@@ -523,7 +571,9 @@ async def process_job(job_id: str, url: str) -> None:
                 extracted, source_language = await asyncio.to_thread(
                     _transcribe, audio, config.whisper_model, config.device,
                     report_model_download,
+                    config.whisper_model_path, config.whisper_download_source,
                 )
+                await control.checkpoint()
                 # Moon End
                 source = "whisper"
             if not extracted:
@@ -608,8 +658,12 @@ async def process_job(job_id: str, url: str) -> None:
             if summary_already_completed:
                 return saved_summary, saved_key_points
             try:
+                import inspect
+                summary_options = {"resume_from": saved_summary_partial}
+                if "control" in inspect.signature(client.summarize).parameters:
+                    summary_options["control"] = control.checkpoint
                 value = await client.summarize(
-                    title, segments, on_summary_chunk, resume_from=saved_summary_partial
+                    title, segments, on_summary_chunk, **summary_options,
                 )
                 job.summary_state = "completed"
                 current_summary, current_key_points = value
@@ -621,7 +675,13 @@ async def process_job(job_id: str, url: str) -> None:
                 job.summary_state, job.summary_error = "failed", str(exc)
                 raise
 
-        translate_task = asyncio.create_task(client.translate(segments, publish_translation))
+        import inspect
+        translate_options = {}
+        if "control" in inspect.signature(client.translate).parameters:
+            translate_options["control"] = control.checkpoint
+        translate_task = asyncio.create_task(client.translate(
+            segments, publish_translation, **translate_options
+        ))
         summary_task = asyncio.create_task(run_summary())
         translate_result, summary_result = await asyncio.gather(
             translate_task, summary_task, return_exceptions=True
@@ -666,9 +726,133 @@ async def process_job(job_id: str, url: str) -> None:
     final_stage = "字幕完成，摘要生成失败" if job.summary_state == "failed" else "处理完成，请手动播放"
     job.state, job.stage, job.progress = "completed", final_stage, 100
 
+async def _run_job(job_id: str, url: str) -> None:
+    """Keep cancellation visible instead of leaving a stale running job."""
+    # Moon Begin
+    try:
+        await process_job(job_id, url)
+    except asyncio.CancelledError:
+        job = JOBS[job_id]
+        job.state, job.stage, job.error = "cancelled", "任务已取消，进度已保留", None
+    except Exception as exc:
+        job = JOBS[job_id]
+        job.state, job.stage, job.error = "failed", "处理失败", str(exc)
+    finally:
+        JOB_TASKS.pop(job_id, None)
+    # Moon End
+
+
 def create_job(url: str) -> JobView:
     job_id = uuid.uuid4().hex
     job = JobView(id=job_id, state="queued", stage="等待处理", progress=0)
     JOBS[job_id] = job
-    asyncio.create_task(process_job(job_id, url))
+    JOB_CONTROLS[job_id] = JobControl()
+    JOB_TASKS[job_id] = asyncio.create_task(_run_job(job_id, url))
     return job
+
+
+# Moon Begin: public task controls used by the browser toolbar.
+def pause_job(job_id: str) -> JobView:
+    job, control = JOBS[job_id], JOB_CONTROLS[job_id]
+    if job.state not in ("queued", "running"):
+        return job
+    control.previous_stage = job.stage
+    control.resume_event.clear()
+    job.state, job.stage = "paused", "已暂停（当前识别步骤结束后生效）"
+    return job
+
+
+def resume_job(job_id: str) -> JobView:
+    job, control = JOBS[job_id], JOB_CONTROLS[job_id]
+    if job.state != "paused":
+        return job
+    job.state, job.stage = "running", control.previous_stage or "继续处理"
+    control.resume_event.set()
+    return job
+
+
+def cancel_job(job_id: str) -> JobView:
+    job, control = JOBS[job_id], JOB_CONTROLS[job_id]
+    if job.state in ("completed", "failed", "cancelled"):
+        return job
+    control.cancelled = True
+    control.resume_event.set()
+    # Moon Modified: stop at the next safe checkpoint. Force-cancelling a worker
+    # thread can leave curl writing into the model path after cleanup begins.
+    job.state, job.stage, job.error = "cancelled", "任务已取消，进度已保留", None
+    return job
+
+
+def inspect_whisper_model() -> ModelStatus:
+    import ctranslate2
+    from huggingface_hub.constants import HF_HUB_CACHE
+
+    config = load_config()
+    model = config.whisper_model.removesuffix(".en")
+    candidates: list[Path] = []
+    if config.whisper_model_path.strip():
+        candidates.append(Path(config.whisper_model_path).expanduser())
+    repo_id = model if "/" in model else f"Systran/faster-whisper-{model}"
+    snapshots = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}" / "snapshots"
+    if snapshots.exists():
+        candidates.extend(snapshots.glob("*"))
+    candidates.append(CACHE_DIR.parent / "models" / model.replace("/", "--"))
+    resolved = next((p for p in candidates if all((p / n).is_file() for n in ("config.json", "model.bin", "tokenizer.json"))), None)
+    size = (resolved / "model.bin").stat().st_size if resolved else 0
+    marker = resolved / ".ytba-model-size" if resolved else None
+    expected = int(marker.read_text().strip()) if marker and marker.exists() else size
+    cuda = bool(ctranslate2.get_cuda_device_count())
+    return ModelStatus(
+        model=model, configured_path=config.whisper_model_path,
+        resolved_path=str(resolved.resolve()) if resolved else "", installed=bool(resolved),
+        valid=bool(resolved and size > 0 and (not marker or not marker.exists() or size == expected)),
+        size=size, expected_size=expected, device="cuda" if cuda else "cpu",
+        cuda_available=cuda, state="completed" if resolved else "idle",
+        stage="模型可用" if resolved else "尚未安装",
+        progress=100 if resolved else 0, downloaded=size, total=expected,
+    )
+
+
+def get_model_status() -> ModelStatus:
+    return MODEL_DOWNLOAD if MODEL_DOWNLOAD and MODEL_DOWNLOAD.state == "running" else inspect_whisper_model()
+
+
+def start_model_download() -> ModelStatus:
+    global MODEL_DOWNLOAD, MODEL_DOWNLOAD_TASK
+    if MODEL_DOWNLOAD_TASK and not MODEL_DOWNLOAD_TASK.done():
+        return MODEL_DOWNLOAD
+    config = load_config()
+    MODEL_DOWNLOAD = ModelStatus(model=config.whisper_model, state="running", stage="正在连接模型仓库")
+
+    async def run() -> None:
+        global MODEL_DOWNLOAD
+        def progress(percent, downloaded, total, speed, source):
+            MODEL_DOWNLOAD.progress = percent
+            MODEL_DOWNLOAD.downloaded = downloaded
+            MODEL_DOWNLOAD.total = total
+            MODEL_DOWNLOAD.speed = speed
+            MODEL_DOWNLOAD.source = source
+            MODEL_DOWNLOAD.stage = "正在下载模型" if percent < 100 else "模型下载完成"
+        try:
+            path = await asyncio.to_thread(
+                _prepare_whisper_model, config.whisper_model, progress,
+                config.whisper_model_path, config.whisper_download_source,
+            )
+            MODEL_DOWNLOAD.resolved_path = path
+            MODEL_DOWNLOAD.installed = MODEL_DOWNLOAD.valid = True
+            MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage, MODEL_DOWNLOAD.progress = "completed", "模型可用", 100
+        except asyncio.CancelledError:
+            MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage = "cancelled", "下载已取消，可稍后续传"
+        except Exception as exc:
+            MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage, MODEL_DOWNLOAD.error = "failed", "模型下载失败", str(exc)
+    MODEL_DOWNLOAD_TASK = asyncio.create_task(run())
+    return MODEL_DOWNLOAD
+
+
+def cancel_model_download() -> ModelStatus:
+    if MODEL_DOWNLOAD_TASK and not MODEL_DOWNLOAD_TASK.done():
+        MODEL_DOWNLOAD_TASK.cancel()
+    if MODEL_DOWNLOAD:
+        MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage = "cancelled", "下载已取消，可稍后续传"
+    return MODEL_DOWNLOAD or inspect_whisper_model()
+# Moon End

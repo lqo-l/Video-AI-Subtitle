@@ -8,8 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from .config import CACHE_DIR, ensure_dirs, load_config, save_config
-from .models import JobView, PublicConfig, ServiceConfig, VideoRequest
-from .pipeline import JOBS, create_job
+from .models import JobView, ModelStatus, PublicConfig, ServiceConfig, VideoRequest
+from .pipeline import (
+    JOBS, cancel_job, cancel_model_download, create_job, get_model_status, pause_job, resume_job,
+    start_model_download,
+)
 
 
 app = FastAPI(title="Video Bilingual Assistant", version="0.2.0")
@@ -75,6 +78,46 @@ def get_job(job_id: str):
     if job_id not in JOBS:
         raise HTTPException(404, "任务不存在")
     return JOBS[job_id]
+
+
+# Moon Begin: explicit task lifecycle controls.
+def _require_job(job_id: str) -> None:
+    if job_id not in JOBS:
+        raise HTTPException(404, "任务不存在")
+
+
+@app.post("/jobs/{job_id}/pause", response_model=JobView)
+def pause(job_id: str):
+    _require_job(job_id)
+    return pause_job(job_id)
+
+
+@app.post("/jobs/{job_id}/resume", response_model=JobView)
+def resume(job_id: str):
+    _require_job(job_id)
+    return resume_job(job_id)
+
+
+@app.post("/jobs/{job_id}/cancel", response_model=JobView)
+def cancel(job_id: str):
+    _require_job(job_id)
+    return cancel_job(job_id)
+
+
+@app.get("/models/status", response_model=ModelStatus)
+def model_status():
+    return get_model_status()
+
+
+@app.post("/models/download", response_model=ModelStatus)
+async def model_download():
+    return start_model_download()
+
+
+@app.post("/models/download/cancel", response_model=ModelStatus)
+def model_download_cancel():
+    return cancel_model_download()
+# Moon End
 
 
 @app.get("/jobs/{job_id}/markdown", response_class=PlainTextResponse)

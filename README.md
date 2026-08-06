@@ -8,6 +8,8 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
+Current version: `v0.12.0`
+
 </div>
 
 ---
@@ -28,6 +30,9 @@
 - **Independent model selection** — translation and summarization use separately configurable models via any OpenAI-compatible API.
 - **One-click Markdown export** — download full transcripts with summaries and key points for offline reference.
 - **Flexible display controls** — toggle visibility, switch between source+Chinese / source-only / Chinese-only, adjust font size and position, and enable a background.
+- **Advanced local settings** — validate a custom multilingual Whisper path, select mirror/official downloads, pre-download weights, and inspect size, speed, and percentage.
+- **Task controls** — pause, resume, or cancel while preserving completed extraction, translation, and summary checkpoints.
+- **Unified layout and appearance** — overlay/push applies in windowed and fullscreen playback, controls are grouped, and panel background transparency is configurable.
 
 ## Architecture
 

@@ -86,7 +86,7 @@ class LlmClient:
             raise RuntimeError("模型返回中未找到文本")
         return "\n".join(parts)
 
-    async def _stream_summarize(self, model: str, system: str, user: str, on_chunk):
+    async def _stream_summarize(self, model: str, system: str, user: str, on_chunk, control=None):
         if not self.config.api_key:
             raise RuntimeError("请先在扩展设置中填写 API Key")
         if not self.config.base_url:
@@ -106,6 +106,8 @@ class LlmClient:
                 return fallback
             response.raise_for_status()
             async for line in response.aiter_lines():
+                if control:
+                    await control()
                 if line.startswith("data: "):
                     data = line[6:]
                     if data == "[DONE]":
@@ -120,12 +122,14 @@ class LlmClient:
                         continue
         return "".join(accumulated)
 
-    async def translate(self, segments: list[Segment], progress=None) -> None:
+    async def translate(self, segments: list[Segment], progress=None, control=None) -> None:
         batch_size = 20  # Moon Modified: expose the first playable translated section sooner.
         context_size = 5  # Moon Add: retain terminology and references across batch boundaries.
         source_language = next((item.source_language for item in segments if item.en), "en")
         language_name = {"en": "英文", "ja": "日文", "zh": "中文"}.get(source_language, "原文")
         for offset in range(0, len(segments), batch_size):
+            if control:
+                await control()
             batch = segments[offset : offset + batch_size]
             if all(item.zh for item in batch):
                 if progress:
@@ -189,7 +193,7 @@ class LlmClient:
                 progress(completed, len(segments))
 
     async def summarize(
-        self, title: str, segments: list[Segment], on_stream=None, resume_from: str = ""
+        self, title: str, segments: list[Segment], on_stream=None, resume_from: str = "", control=None
     ) -> tuple[str, list[str]]:
         lines = []
         for s in segments:
@@ -217,6 +221,7 @@ class LlmClient:
                 stream_prompt,
                 user_msg,
                 lambda chunk: on_stream(resume_from + chunk),
+                control,
             )
             text = resume_from + continuation
             summary, key_points = self._parse_streamed_summary(text)

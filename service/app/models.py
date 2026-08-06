@@ -11,6 +11,9 @@ class ServiceConfig(BaseModel):
     translation_model: str = "deepseek-v4-flash"
     summary_model: str = "deepseek-chat"
     whisper_model: str = "small"
+    # Moon Add: optional local multilingual faster-whisper directory.
+    whisper_model_path: str = ""
+    whisper_download_source: Literal["auto", "mirror", "official"] = "auto"
     device: Literal["auto", "cuda", "cpu"] = "auto"
 
 
@@ -19,6 +22,8 @@ class PublicConfig(BaseModel):
     translation_model: str
     summary_model: str
     whisper_model: str
+    whisper_model_path: str
+    whisper_download_source: str
     device: str
     api_key_configured: bool
 
@@ -51,7 +56,7 @@ class ProcessedVideo(BaseModel):
 
 class JobView(BaseModel):
     id: str
-    state: Literal["queued", "running", "completed", "failed"]
+    state: Literal["queued", "running", "paused", "completed", "failed", "cancelled"]
     stage: str
     progress: int
     # Moon Add: expose incremental translation state to the browser panel.
@@ -66,3 +71,25 @@ class JobView(BaseModel):
     summary_error: str | None = None
     platform: Literal["youtube", "bilibili"] = "youtube"
     source_language: Literal["en", "ja", "zh"] = "en"
+
+
+# Moon Begin: model inspection and pre-download are exposed to the settings page.
+class ModelStatus(BaseModel):
+    model: str
+    configured_path: str = ""
+    resolved_path: str = ""
+    installed: bool = False
+    valid: bool = False
+    size: int = 0
+    expected_size: int = 0
+    device: str = "cpu"
+    cuda_available: bool = False
+    state: Literal["idle", "running", "completed", "failed", "cancelled"] = "idle"
+    stage: str = "尚未检查"
+    progress: int = 0
+    downloaded: int = 0
+    total: int = 0
+    speed: float = 0
+    source: str = ""
+    error: str | None = None
+# Moon End
