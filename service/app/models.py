@@ -74,6 +74,14 @@ class JobView(BaseModel):
 
 
 # Moon Begin: model inspection and pre-download are exposed to the settings page.
+class LocalModelInfo(BaseModel):
+    model: str
+    path: str = ""
+    size: int = 0
+    valid: bool = False
+    missing_files: list[str] = Field(default_factory=list)
+
+
 class ModelStatus(BaseModel):
     model: str
     configured_path: str = ""
@@ -92,6 +100,8 @@ class ModelStatus(BaseModel):
     speed: float = 0
     source: str = ""
     error: str | None = None
+    missing_files: list[str] = Field(default_factory=list)
+    local_models: list[LocalModelInfo] = Field(default_factory=list)
 # Moon End
 
 

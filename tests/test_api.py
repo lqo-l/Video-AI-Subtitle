@@ -138,4 +138,39 @@ def test_cuda_runtime_endpoints(monkeypatch):
 
 def test_whisper_defaults_to_cpu():
     assert ServiceConfig().device == "cpu"
+
+
+def test_model_status_uses_unsaved_query_selection(monkeypatch):
+    # Moon Add: changing the settings-page dropdown must not inspect stale saved config.
+    observed = {}
+
+    def fake_status(model, model_path):
+        observed.update(model=model, model_path=model_path)
+        from service.app.models import ModelStatus
+        return ModelStatus(model=model, configured_path=model_path, stage="模型可用")
+
+    monkeypatch.setattr(main, "get_model_status", fake_status)
+    response = TestClient(app).get(
+        "/models/status", params={"model": "small", "model_path": "D:/models/small"}
+    )
+    assert response.status_code == 200
+    assert observed == {"model": "small", "model_path": "D:/models/small"}
+
+
+def test_model_download_uses_unsaved_query_selection(monkeypatch):
+    # Moon Add
+    observed = {}
+
+    def fake_download(model, model_path, source):
+        observed.update(model=model, model_path=model_path, source=source)
+        from service.app.models import ModelStatus
+        return ModelStatus(model=model, state="running", stage="正在连接模型仓库")
+
+    monkeypatch.setattr(main, "start_model_download", fake_download)
+    response = TestClient(app).post(
+        "/models/download",
+        params={"model": "medium", "model_path": "", "source": "mirror"},
+    )
+    assert response.status_code == 200
+    assert observed == {"model": "medium", "model_path": "", "source": "mirror"}
 # Moon End

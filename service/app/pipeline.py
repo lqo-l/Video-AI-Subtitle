@@ -21,7 +21,7 @@ from faster_whisper import WhisperModel
 
 from .config import CACHE_DIR, WORK_DIR, load_config
 from .llm import LlmClient
-from .models import CudaRuntimeStatus, JobView, ModelStatus, ProcessedVideo, Segment
+from .models import CudaRuntimeStatus, JobView, LocalModelInfo, ModelStatus, ProcessedVideo, Segment
 
 
 JOBS: dict[str, JobView] = {}
@@ -856,47 +856,102 @@ def cancel_job(job_id: str) -> JobView:
     return job
 
 
-def inspect_whisper_model() -> ModelStatus:
-    _configure_private_cuda_runtime()  # Moon Add
-    import ctranslate2
+def _whisper_model_candidates(model: str, configured_path: str = "") -> list[Path]:
+    """Return model locations in user-selected, shared-cache, then app-cache order."""
+    # Moon Begin
     from huggingface_hub.constants import HF_HUB_CACHE
 
-    config = load_config()
-    model = config.whisper_model.removesuffix(".en")
     candidates: list[Path] = []
-    if config.whisper_model_path.strip():
-        candidates.append(Path(config.whisper_model_path).expanduser())
+    if configured_path.strip():
+        candidates.append(Path(configured_path).expanduser())
     repo_id = model if "/" in model else f"Systran/faster-whisper-{model}"
     snapshots = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}" / "snapshots"
     if snapshots.exists():
         candidates.extend(snapshots.glob("*"))
     candidates.append(CACHE_DIR.parent / "models" / model.replace("/", "--"))
-    resolved = next((p for p in candidates if all((p / n).is_file() for n in ("config.json", "model.bin", "tokenizer.json"))), None)
-    size = (resolved / "model.bin").stat().st_size if resolved else 0
-    marker = resolved / ".ytba-model-size" if resolved else None
-    expected = int(marker.read_text().strip()) if marker and marker.exists() else size
+    return list(dict.fromkeys(candidates))
+    # Moon End
+
+
+def _local_model_info(model: str, configured_path: str = "") -> LocalModelInfo | None:
+    """Find the most complete local copy, including interrupted downloads."""
+    # Moon Begin
+    required = ("config.json", "tokenizer.json", "model.bin")
+    candidates = [path for path in _whisper_model_candidates(model, configured_path) if path.is_dir()]
+    if not candidates:
+        return None
+    path = max(candidates, key=lambda item: sum((item / name).is_file() for name in required))
+    missing = [name for name in required if not (path / name).is_file()]
+    size = (path / "model.bin").stat().st_size if (path / "model.bin").is_file() else 0
+    marker = path / ".ytba-model-size"
+    expected = int(marker.read_text().strip()) if marker.is_file() else size
+    valid = not missing and size > 0 and (not marker.is_file() or size == expected)
+    return LocalModelInfo(
+        model=model, path=str(path.resolve()), size=size, valid=valid,
+        missing_files=missing if missing else (["model.bin（文件不完整）"] if not valid else []),
+    )
+    # Moon End
+
+
+def inspect_whisper_model(model_name: str | None = None, model_path: str | None = None) -> ModelStatus:
+    _configure_private_cuda_runtime()  # Moon Add
+    import ctranslate2
+    config = load_config()
+    model = (model_name or config.whisper_model).removesuffix(".en")
+    configured_path = config.whisper_model_path if model_path is None else model_path
+    selected = _local_model_info(model, configured_path)
+    size = selected.size if selected else 0
+    valid = bool(selected and selected.valid)
+    expected = size
+    if selected and selected.path:
+        marker = Path(selected.path) / ".ytba-model-size"
+        if marker.is_file():
+            expected = int(marker.read_text().strip())
+    # Report all recognizable standard models so users can see what is already reusable.
+    local_models = []
+    for known_model in dict.fromkeys(("tiny", "base", "small", "medium", model)):
+        info = _local_model_info(known_model, configured_path if known_model == model else "")
+        if info:
+            local_models.append(info)
     cuda = bool(ctranslate2.get_cuda_device_count())
+    if valid:
+        stage, state = "模型可用", "completed"
+    elif selected:
+        stage, state = "模型未完整安装", "idle"
+    else:
+        stage, state = "尚未安装", "idle"
     return ModelStatus(
-        model=model, configured_path=config.whisper_model_path,
-        resolved_path=str(resolved.resolve()) if resolved else "", installed=bool(resolved),
-        valid=bool(resolved and size > 0 and (not marker or not marker.exists() or size == expected)),
+        model=model, configured_path=configured_path,
+        resolved_path=selected.path if selected else "", installed=valid, valid=valid,
         size=size, expected_size=expected, device="cuda" if cuda else "cpu",
-        cuda_available=cuda, state="completed" if resolved else "idle",
-        stage="模型可用" if resolved else "尚未安装",
-        progress=100 if resolved else 0, downloaded=size, total=expected,
+        cuda_available=cuda, state=state, stage=stage,
+        progress=100 if valid else 0, downloaded=size, total=expected,
+        missing_files=selected.missing_files if selected else [], local_models=local_models,
     )
 
 
-def get_model_status() -> ModelStatus:
-    return MODEL_DOWNLOAD if MODEL_DOWNLOAD and MODEL_DOWNLOAD.state == "running" else inspect_whisper_model()
+def get_model_status(model_name: str | None = None, model_path: str | None = None) -> ModelStatus:
+    requested = model_name.removesuffix(".en") if model_name else None
+    if MODEL_DOWNLOAD and MODEL_DOWNLOAD.state == "running" and (not requested or MODEL_DOWNLOAD.model == requested):
+        return MODEL_DOWNLOAD
+    return inspect_whisper_model(model_name, model_path)
 
 
-def start_model_download() -> ModelStatus:
+def start_model_download(
+    model_name: str | None = None, model_path: str | None = None,
+    download_source: str | None = None,
+) -> ModelStatus:
     global MODEL_DOWNLOAD, MODEL_DOWNLOAD_TASK
     if MODEL_DOWNLOAD_TASK and not MODEL_DOWNLOAD_TASK.done():
         return MODEL_DOWNLOAD
     config = load_config()
-    MODEL_DOWNLOAD = ModelStatus(model=config.whisper_model, state="running", stage="正在连接模型仓库")
+    model = (model_name or config.whisper_model).removesuffix(".en")
+    configured_path = config.whisper_model_path if model_path is None else model_path
+    source = download_source or config.whisper_download_source
+    MODEL_DOWNLOAD = ModelStatus(
+        model=model, configured_path=configured_path,
+        state="running", stage="正在连接模型仓库",
+    )
 
     async def run() -> None:
         global MODEL_DOWNLOAD
@@ -909,8 +964,7 @@ def start_model_download() -> ModelStatus:
             MODEL_DOWNLOAD.stage = "正在下载模型" if percent < 100 else "模型下载完成"
         try:
             path = await asyncio.to_thread(
-                _prepare_whisper_model, config.whisper_model, progress,
-                config.whisper_model_path, config.whisper_download_source,
+                _prepare_whisper_model, model, progress, configured_path, source,
             )
             MODEL_DOWNLOAD.resolved_path = path
             MODEL_DOWNLOAD.installed = MODEL_DOWNLOAD.valid = True

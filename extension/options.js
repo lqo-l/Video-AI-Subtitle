@@ -15,10 +15,13 @@ function renderModel(data){
   model_percent.textContent=`${data.progress||0}%`;
   model_bar.style.width=`${data.progress||0}%`;
   const transfer=data.total?`${humanSize(data.downloaded)} / ${humanSize(data.total)}${data.speed?` · ${humanSize(data.speed)}/s`:""}`:"";
-  model_detail.textContent=[data.resolved_path||data.configured_path||"未找到可用模型",transfer,data.error].filter(Boolean).join(" · ");
+  const missing=data.missing_files?.length?`缺少：${data.missing_files.join("、")}`:"";
+  const reusable=(data.local_models||[]).filter(item=>item.valid&&item.model!==data.model).map(item=>`${item.model}（${humanSize(item.size)}）`).join("、");
+  model_detail.textContent=[data.resolved_path||data.configured_path||"未找到当前型号",missing,transfer,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
   if(data.state==="running"){clearTimeout(modelPoll);modelPoll=setTimeout(checkModel,700);}
 }
-async function checkModel(){check_model.disabled=true;model_stage.textContent="正在检查模型…";model_detail.textContent="正在读取模型目录和运行设备";try{await ensureService();renderModel(await request("/models/status"));}catch(error){model_stage.textContent=`检查失败：${error.message}`;}finally{check_model.disabled=false;}}
+function modelQuery(){return new URLSearchParams({model:whisper_model.value,model_path:whisper_model_path.value,source:whisper_download_source.value}).toString();}
+async function checkModel(){check_model.disabled=true;model_stage.textContent=`正在检查 ${whisper_model.value}…`;model_detail.textContent="正在读取模型目录和运行设备";try{await ensureService();renderModel(await request(`/models/status?${modelQuery()}`));}catch(error){model_stage.textContent=`检查失败：${error.message}`;}finally{check_model.disabled=false;}}
 function renderCuda(data){
   cuda_stage.textContent=data.stage+(data.component?` · ${data.component}`:"");
   cuda_percent.textContent=`${data.progress||0}%`;
@@ -44,7 +47,7 @@ api_key.onfocus=()=>{if(api_key.value===KEY_PLACEHOLDER)api_key.value="";};
 api_key.onblur=()=>{if(!api_key.value&&api_key.dataset.configured==="true")api_key.value=KEY_PLACEHOLDER;};
 panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
 check_model.onclick=checkModel;
-download_model.onclick=async()=>{try{download_model.disabled=true;renderModel(await request("/models/download",{method:"POST"}));}catch(error){model_stage.textContent=`下载失败：${error.message}`;}finally{download_model.disabled=false;}};
+download_model.onclick=async()=>{try{download_model.disabled=true;renderModel(await request(`/models/download?${modelQuery()}`,{method:"POST"}));}catch(error){model_stage.textContent=`下载失败：${error.message}`;}finally{download_model.disabled=false;}};
 check_cuda.onclick=checkCuda;
 install_cuda.onclick=async()=>{
   if(!confirm("将下载约 1.37 GB 的 NVIDIA cuBLAS、cuDNN 与 NVRTC 到插件虚拟环境。继续吗？"))return;

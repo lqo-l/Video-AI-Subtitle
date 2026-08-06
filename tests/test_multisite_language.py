@@ -133,6 +133,32 @@ def test_prepare_whisper_model_reuses_complete_legacy_model(monkeypatch, tmp_pat
     assert progress == [(100, 6, 6, 0, "本机缓存")]
 
 
+def test_inspect_whisper_model_reports_complete_and_partial_models(monkeypatch, tmp_path):
+    # Moon Add: interrupted downloads must explain the missing file while complete models remain reusable.
+    models = tmp_path / "models"
+    small = models / "small"
+    medium = models / "medium"
+    small.mkdir(parents=True)
+    medium.mkdir(parents=True)
+    for name in ("config.json", "tokenizer.json", "model.bin"):
+        (small / name).write_bytes(b"complete")
+    (small / ".ytba-model-size").write_text(str(len(b"complete")))
+    for name in ("config.json", "tokenizer.json"):
+        (medium / name).write_bytes(b"partial")
+    monkeypatch.setattr(pipeline, "CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(pipeline, "load_config", lambda: ServiceConfig(whisper_model="medium"))
+
+    small_status = pipeline.inspect_whisper_model("small")
+    medium_status = pipeline.inspect_whisper_model("medium")
+
+    assert small_status.valid is True
+    assert small_status.resolved_path == str(small.resolve())
+    assert medium_status.valid is False
+    assert medium_status.stage == "模型未完整安装"
+    assert medium_status.missing_files == ["model.bin"]
+    assert any(item.model == "small" and item.valid for item in medium_status.local_models)
+
+
 def test_bilibili_japanese_pipeline_writes_site_specific_cache(tmp_path, monkeypatch):
     cache_dir, work_dir = tmp_path / "cache", tmp_path / "work"
     cache_dir.mkdir()

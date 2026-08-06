@@ -105,13 +105,18 @@ def cancel(job_id: str):
 
 
 @app.get("/models/status", response_model=ModelStatus)
-def model_status():
-    return get_model_status()
+def model_status(model: str | None = None, model_path: str | None = None):
+    # Moon Modified: inspect the current settings-page selection before it is saved.
+    return get_model_status(model, model_path)
 
 
 @app.post("/models/download", response_model=ModelStatus)
-async def model_download():
-    return start_model_download()
+async def model_download(
+    model: str | None = None, model_path: str | None = None,
+    source: str | None = None,
+):
+    # Moon Modified: download the visible selection rather than stale saved config.
+    return start_model_download(model, model_path, source)
 
 
 @app.post("/models/download/cancel", response_model=ModelStatus)
