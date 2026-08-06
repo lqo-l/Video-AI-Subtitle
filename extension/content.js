@@ -17,6 +17,9 @@
   let layoutAnimationFrame = 0;
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
+  // Moon Add: persist the sidebar edge and user-selected width across videos.
+  const defaultPanelPrefs = {side:"right", width:390, fullscreenMode:"overlay"};
+  let panelPrefs = {...defaultPanelPrefs};
   const site = location.hostname.includes("bilibili.com") ? "bilibili" : "youtube";
 
   const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -87,10 +90,13 @@
     if (root) return root;
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手" aria-label="展开字幕助手"><span class="ytba-edge-mark">译</span><i aria-hidden="true">‹</i></button><div class="ytba-head"><strong>AI 双语字幕助手</strong><button class="ytba-button secondary" data-retry title="从上次缓存继续">↻ 重试</button><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary ytba-collapse" data-close title="收缩侧栏">&gt;</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手" aria-label="展开字幕助手"><span class="ytba-edge-mark">译</span><i aria-hidden="true">‹</i></button><div class="ytba-resize-handle" data-resize title="拖拽调整侧栏宽度"></div><div class="ytba-head"><strong>AI 双语字幕助手</strong><button class="ytba-button secondary" data-retry title="从上次缓存继续">↻ 重试</button><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary ytba-collapse" data-close title="收缩侧栏">&gt;</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-side title="将侧栏移到左侧">移到左侧</button><button class="ytba-control" data-fullscreen-mode title="切换全屏侧栏布局">全屏：覆盖</button><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
     // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
     root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
     root.querySelector("[data-expand]").onclick = event => { event.stopPropagation(); setPanelCollapsed(false); };
+    root.querySelector("[data-side]").onclick = () => updatePanelPrefs({side:panelPrefs.side==="right"?"left":"right"});
+    root.querySelector("[data-fullscreen-mode]").onclick = () => updatePanelPrefs({fullscreenMode:panelPrefs.fullscreenMode==="overlay"?"push":"overlay"});
+    bindPanelResize(root);
     root.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => renderTab(button.dataset.tab));
     root.querySelector("[data-retry]").onclick = retryFromCheckpoint;
     bindSubtitleControls(root);
@@ -98,6 +104,7 @@
     document.body.appendChild(root);
     document.body.classList.add(`ytba-site-${site}`);
     document.body.classList.add("ytba-panel-open");
+    applyPanelPrefs();
     setPanelCollapsed(panelCollapsed);
     refreshTabStates();
     return root;
@@ -141,8 +148,21 @@
   }
 
   function updateFullscreenLayout() {
-    // Moon Add: the normal 64px YouTube header offset must not survive fullscreen.
-    document.body.classList.toggle("ytba-fullscreen",Boolean(document.fullscreenElement));
+    // Moon Begin: only descendants of the fullscreen element are rendered by Chrome.
+    const root=document.querySelector("#ytba-root");
+    const player=video();
+    const bilibiliFullscreen=site==="bilibili"
+      ? [...document.querySelectorAll(".bpx-state-fullscreen")].find(element=>element.contains(player))
+      : null;
+    const host=document.fullscreenElement || bilibiliFullscreen || null;
+    document.querySelectorAll(".ytba-fullscreen-host").forEach(element=>{
+      if(element!==host)element.classList.remove("ytba-fullscreen-host");
+    });
+    if(host&&root&&host!==root&&!host.contains(root))host.appendChild(root);
+    if(!host&&root&&root.parentElement!==document.body)document.body.appendChild(root);
+    host?.classList.add("ytba-fullscreen-host");
+    document.body.classList.toggle("ytba-fullscreen",Boolean(host));
+    // Moon End
   }
 
   function safeName(name) { return name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 100); }
@@ -212,6 +232,61 @@
     });
     return lines.join("\n");
   }
+
+  // Moon Begin: switch edges and resize without detaching or rebuilding the panel.
+  function clampPanelWidth(width) {
+    return Math.round(Math.min(680, Math.max(280, Math.min(width, window.innerWidth - 80))));
+  }
+
+  function applyPanelPrefs() {
+    panelPrefs.side=panelPrefs.side==="left"?"left":"right";
+    panelPrefs.fullscreenMode=panelPrefs.fullscreenMode==="push"?"push":"overlay";
+    panelPrefs.width=clampPanelWidth(Number(panelPrefs.width)||defaultPanelPrefs.width);
+    document.body.style.setProperty("--ytba-panel-width",`${panelPrefs.width}px`);
+    document.body.classList.toggle("ytba-panel-left",panelPrefs.side==="left");
+    document.body.classList.toggle("ytba-panel-right",panelPrefs.side==="right");
+    document.body.classList.toggle("ytba-fullscreen-mode-push",panelPrefs.fullscreenMode==="push");
+    const root=document.querySelector("#ytba-root");
+    if(!root)return;
+    const sideButton=root.querySelector("[data-side]");
+    sideButton.textContent=panelPrefs.side==="right"?"移到左侧":"移到右侧";
+    sideButton.title=`将侧栏移到${panelPrefs.side==="right"?"左":"右"}侧`;
+    const fullscreenButton=root.querySelector("[data-fullscreen-mode]");
+    fullscreenButton.textContent=`全屏：${panelPrefs.fullscreenMode==="push"?"挤压":"覆盖"}`;
+    fullscreenButton.classList.toggle("active",panelPrefs.fullscreenMode==="push");
+    root.querySelector("[data-close]").textContent=panelPrefs.side==="right"?">":"<";
+    root.querySelector(".ytba-edge-handle i").textContent=panelPrefs.side==="right"?"‹":"›";
+  }
+
+  function updatePanelPrefs(changes,{save=true}={}) {
+    panelPrefs={...panelPrefs,...changes};
+    applyPanelPrefs();
+    if(save)chrome.storage.local.set({panelPrefs});
+    window.dispatchEvent(new Event("resize"));
+    updateResponsiveSubtitleScale();
+    updateFullscreenLayout();
+  }
+
+  function bindPanelResize(root) {
+    const handle=root.querySelector("[data-resize]");
+    handle.onpointerdown=event=>{
+      if(panelCollapsed||event.button!==0)return;
+      event.preventDefault();
+      handle.setPointerCapture(event.pointerId);
+      document.body.classList.add("ytba-panel-resizing");
+      const resize=moveEvent=>{
+        const rawWidth=panelPrefs.side==="left"?moveEvent.clientX:window.innerWidth-moveEvent.clientX;
+        updatePanelPrefs({width:clampPanelWidth(rawWidth)},{save:false});
+      };
+      const finish=()=>{
+        handle.onpointermove=null; handle.onpointerup=null; handle.onpointercancel=null;
+        document.body.classList.remove("ytba-panel-resizing");
+        chrome.storage.local.set({panelPrefs});
+      };
+      handle.onpointermove=resize; handle.onpointerup=finish; handle.onpointercancel=finish;
+    };
+  }
+  // Moon End
 
   function renderSummaryMarkdown(markdown) {
     // Moon Add: render the constrained summary Markdown without injecting model HTML.
@@ -413,14 +488,14 @@
     if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);
     playerResizeObserver?.disconnect(); playerResizeObserver=null; cancelAnimationFrame(layoutAnimationFrame); layoutAnimationFrame=0;
     clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; renderedSummary = ""; summaryAutoOpened = false; transcriptComplete = false; summaryComplete = false; activeTab = "transcript"; playbackReady = false; overlay = null;
-    document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-fullscreen","ytba-site-youtube","ytba-site-bilibili"); panelCollapsed=false;
+    document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-panel-resizing","ytba-fullscreen","ytba-site-youtube","ytba-site-bilibili"); panelCollapsed=false;
     if (isVideoPage()) setTimeout(showPrompt, 1800);
   }
 
   chrome.runtime.onMessage.addListener(message => { if (message.type === "start") start(); if (message.type === "open") ensurePanel(); });
   document.addEventListener("fullscreenchange",updateFullscreenLayout);
   updateFullscreenLayout();
-  chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};if(subtitlePrefs.language==="en")subtitlePrefs.language="source";applySubtitlePrefs();refreshSubtitleControls();});
-  setInterval(watchNavigation, 1000);
+  chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs,panelPrefs:defaultPanelPrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};panelPrefs={...defaultPanelPrefs,...data.panelPrefs};if(subtitlePrefs.language==="en")subtitlePrefs.language="source";applyPanelPrefs();applySubtitlePrefs();refreshSubtitleControls();});
+  setInterval(()=>{watchNavigation();updateFullscreenLayout();}, 1000);
   watchNavigation();
 })();

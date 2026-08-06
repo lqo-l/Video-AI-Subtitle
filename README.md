@@ -22,7 +22,7 @@
 - **True parallel pipeline** — source-language summarization starts immediately alongside translation, with a live streamed summary.
 - **Clear completion states** — transcript and summary tabs independently highlight processing, completion, and failure.
 - **Checkpoint resume** — preserves extracted captions, translated batches, and streamed summaries; **↻ Retry** continues without repeating completed work.
-- **Smooth sidebar** — collapse with `>` while the sidebar and video player transition in sync.
+- **Flexible sidebar** — switch sides, drag to resize, choose overlay or push mode in fullscreen, and collapse with `>` / `<`.
 - **Batch-aware context** — each batch receives 5 preceding source/Chinese pairs as reference, preserving terminology and tone.
 - **Smart caption cleanup** — detects and collapses rolling-caption duplicates in English and Japanese, then restores readable segments.
 - **Independent model selection** — translation and summarization use separately configurable models via any OpenAI-compatible API.
@@ -86,7 +86,7 @@ Open the extension popup, click **Settings**, and fill in:
 
 ## Usage
 
-Navigate to an English or Japanese YouTube/Bilibili video. Click the extension icon and select **Process Current Video**. Public captions are reused when available; otherwise local Whisper downloads and transcribes the audio with automatic language detection. The first translated batch becomes playable while the summary runs in parallel.
+Navigate to an English or Japanese YouTube/Bilibili video. Click the extension icon and select **Process Current Video**. Public captions are reused when available; otherwise local Whisper downloads and transcribes the audio with automatic language detection. The first use of a Whisper model shows byte-based download progress; later runs reuse the local cache. The first translated batch becomes playable while the summary runs in parallel.
 
 After a browser, network, or local-service interruption, click **Process Current Video** again or **↻ Retry** in the sidebar. Completed extraction, translation, and summary progress is reused. **Clear Subtitle Cache** also removes these checkpoints.
 

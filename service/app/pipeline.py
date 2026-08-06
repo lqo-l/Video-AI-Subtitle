@@ -7,6 +7,7 @@ import re
 import shutil
 import uuid
 from pathlib import Path
+from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
 import webvtt
@@ -217,20 +218,88 @@ def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | No
     return info, [], audio
 
 
-def _transcribe(audio: Path, model_name: str, device_setting: str) -> tuple[list[Segment], str]:
+def _prepare_whisper_model(
+    model_name: str, progress_callback: Callable[[int], None] | None = None
+) -> str:
+    """Download selected model once and report byte-based first-run progress."""
+    # Moon Begin
+    from huggingface_hub import hf_hub_download, snapshot_download
+    from tqdm.auto import tqdm
+
+    model_name = model_name.removesuffix(".en")
+    repo_id = model_name if "/" in model_name else f"Systran/faster-whisper-{model_name}"
+    model_dir = CACHE_DIR.parent / "models" / model_name.replace("/", "--")
+    expected = ("config.json", "model.bin", "tokenizer.json")
+    if all((model_dir / name).exists() for name in expected):
+        if progress_callback:
+            progress_callback(100)
+        return str(model_dir)
+
+    model_dir.mkdir(parents=True, exist_ok=True)
+    allow_patterns = [
+        "config.json", "preprocessor_config.json", "model.bin",
+        "tokenizer.json", "vocabulary.*",
+    ]
+    # Dry-run metadata gives a stable total even when files download sequentially.
+    class SilentProgress(tqdm):
+        def __init__(self, *args, **kwargs):
+            kwargs["disable"] = True
+            super().__init__(*args, **kwargs)
+
+    files = snapshot_download(
+        repo_id, allow_patterns=allow_patterns, dry_run=True,
+        tqdm_class=SilentProgress,
+    )
+    total_bytes = max(1, sum(item.file_size for item in files))
+    completed_bytes = sum(item.file_size for item in files if not item.will_download)
+
+    for item in files:
+        if not item.will_download:
+            hf_hub_download(repo_id, item.filename, local_dir=model_dir)
+            continue
+        file_base = completed_bytes
+
+        class DownloadProgress(tqdm):
+            def update(self, amount=1):
+                result = super().update(amount)
+                if progress_callback:
+                    current = file_base + min(self.n, item.file_size)
+                    progress_callback(min(99, int(current * 100 / total_bytes)))
+                return result
+
+        hf_hub_download(
+            repo_id, item.filename, local_dir=model_dir,
+            tqdm_class=DownloadProgress,
+        )
+        completed_bytes += item.file_size
+        if progress_callback:
+            progress_callback(min(99, int(completed_bytes * 100 / total_bytes)))
+    if progress_callback:
+        progress_callback(100)
+    return str(model_dir)
+    # Moon End
+
+
+def _transcribe(
+    audio: Path,
+    model_name: str,
+    device_setting: str,
+    download_progress: Callable[[int], None] | None = None,
+) -> tuple[list[Segment], str]:
     import ctranslate2
 
     model_name = model_name.removesuffix(".en")  # Moon Add: require multilingual weights.
+    model_path = _prepare_whisper_model(model_name, download_progress)  # Moon Add
     device = device_setting
     if device == "auto":
         device = "cuda" if ctranslate2.get_cuda_device_count() else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
     try:
-        model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        model = WhisperModel(model_path, device=device, compute_type=compute_type)
     except Exception:
         if device_setting != "auto" or device == "cpu":
             raise
-        model = WhisperModel(model_name, device="cpu", compute_type="int8")
+        model = WhisperModel(model_path, device="cpu", compute_type="int8")
     items, info = model.transcribe(str(audio), language=None, vad_filter=True, beam_size=5)
     language = info.language if info.language in SUPPORTED_LANGUAGES else ""
     if not language:
@@ -307,11 +376,21 @@ async def process_job(job_id: str, url: str) -> None:
             source = info.get("_ytba_source", f"{platform}_subtitles")
             source_language = info.get("_ytba_language", "en")
             if not extracted:
-                job.stage, job.progress = "使用本机 Whisper 自动识别英/日语音", 25
                 config = load_config()
+                # Moon Begin: distinguish first-run model download from transcription.
+                def report_model_download(percent: int) -> None:
+                    if percent >= 100:
+                        job.stage, job.progress = "正在识别语音", 45
+                    else:
+                        job.stage = f"正在下载语音模型 {percent}%"
+                        job.progress = 25 + round(percent * 0.2)
+
+                job.stage, job.progress = "正在准备语音模型", 25
                 extracted, source_language = await asyncio.to_thread(
-                    _transcribe, audio, config.whisper_model, config.device
+                    _transcribe, audio, config.whisper_model, config.device,
+                    report_model_download,
                 )
+                # Moon End
                 source = "whisper"
             if not extracted:
                 raise RuntimeError("未识别到有效字幕或语音")

@@ -66,6 +66,8 @@ def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_
             return [FakeItem()], FakeInfo()
 
     monkeypatch.setattr(pipeline, "WhisperModel", FakeWhisperModel)
+    # Moon Add: unit tests must not download model weights from Hugging Face.
+    monkeypatch.setattr(pipeline, "_prepare_whisper_model", lambda model, callback: model)
     segments, language = pipeline._transcribe(tmp_path / "audio.wav", "small.en", "cpu")
 
     assert observed["model"] == "small"
