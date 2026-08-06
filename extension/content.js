@@ -176,16 +176,18 @@
     if(site!=="bilibili")return;
     if(fullscreen){document.body.style.setProperty("--ytba-site-header-offset","0px");return;}
     const selectors=[
-      "#bili-header-container", ".bili-header__bar", ".mini-header",
-      ".international-header .mini-header__content",
+      "#bili-header-container", "header.bili-header", ".mini-header",
+      ".international-header",
     ];
-    const bottoms=selectors.flatMap(selector=>[...document.querySelectorAll(selector)])
-      .map(element=>element.getBoundingClientRect())
-      .filter(rect=>rect.width>0&&rect.height>0&&rect.bottom>0&&rect.top<140)
-      .map(rect=>rect.bottom);
-    // Bilibili changes header implementations frequently. Its compact bar is 64px;
-    // cap banner-like containers so they do not push the assistant below the player.
-    const offset=Math.round(Math.min(112,Math.max(64,...bottoms)));
+    // Moon Modified: use the first actual top-level header. Taking the maximum
+    // bottom of nested menus can leave an extra blank strip below the navbar.
+    const header=selectors.map(selector=>document.querySelector(selector)).find(element=>{
+      if(!element)return false;
+      const rect=element.getBoundingClientRect();
+      return rect.width>0&&rect.height>0&&rect.bottom>0&&rect.top<24;
+    });
+    const rect=header?.getBoundingClientRect();
+    const offset=Math.round(rect ? Math.min(96,Math.max(48,rect.bottom)) : 64);
     document.body.style.setProperty("--ytba-site-header-offset",`${offset}px`);
     // Moon End
   }

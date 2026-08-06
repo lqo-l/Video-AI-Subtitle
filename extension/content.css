@@ -141,14 +141,20 @@ body:has(.html5-video-player.ytp-fullscreen) #ytba-root { top: 0; height: 100vh;
 body:has(.html5-video-player.ytp-fullscreen) #ytba-root.ytba-collapsed { top:0; height:136px; }
 body:has(.html5-video-player.ytp-fullscreen) #page-manager { margin-right:0; margin-left:0; }
 /* Moon Begin: Bilibili uses different page/player containers. */
-/* Moon Modified: overlay avoids the Bilibili header; push mode owns its column
-   from the top, while the site header has already reflowed into the other column. */
-body.ytba-site-bilibili:not(.ytba-fullscreen):not(.ytba-layout-push) #ytba-root { top:var(--ytba-site-header-offset,64px);height:calc(100vh - var(--ytba-site-header-offset,64px)); }
-body.ytba-site-bilibili.ytba-layout-push:not(.ytba-fullscreen) #ytba-root { top:0;height:100vh; }
+/* Moon Modified: the Bilibili navbar always owns the full top row. Both overlay
+   and push workspaces start exactly below its measured bottom edge. */
+body.ytba-site-bilibili:not(.ytba-fullscreen) #ytba-root { top:var(--ytba-site-header-offset,64px);height:calc(100vh - var(--ytba-site-header-offset,64px)); }
 body.ytba-site-bilibili.ytba-fullscreen #ytba-root { top:0;height:100vh; }
 body.ytba-site-bilibili #ytba-root.ytba-collapsed { height:136px; }
 body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-right #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-right:var(--ytba-panel-width,390px); margin-left:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
 body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-left:var(--ytba-panel-width,390px); margin-right:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
+/* Moon Begin: #app contains Bilibili's navbar. Counter the app reflow for that
+   one element so it remains full-window while only the content below is pushed. */
+body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open:not(.ytba-panel-collapsed):not(.ytba-fullscreen) #bili-header-container,
+body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open:not(.ytba-panel-collapsed):not(.ytba-fullscreen) header.bili-header { width:100vw !important;max-width:none !important; }
+body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left:not(.ytba-panel-collapsed):not(.ytba-fullscreen) #bili-header-container,
+body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left:not(.ytba-panel-collapsed):not(.ytba-fullscreen) header.bili-header { margin-left:calc(-1 * var(--ytba-panel-width,390px)) !important; }
+/* Moon End */
 body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-collapsed #app, body.ytba-site-bilibili.ytba-panel-open.ytba-fullscreen #app { width:100%; margin-right:0; margin-left:0; }
 body.ytba-site-bilibili .bpx-player-container, body.ytba-site-bilibili .bilibili-player { position:relative; }
 body.ytba-site-bilibili.ytba-panel-open:has(.bpx-state-fullscreen) #app, body.ytba-site-bilibili.ytba-panel-open.webscreen-fix #app { width:100%; margin-right:0; margin-left:0; }
