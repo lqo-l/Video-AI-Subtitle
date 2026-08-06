@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.12.0`
+Current version: `v0.12.1`
 
 </div>
 
@@ -33,6 +33,7 @@ Current version: `v0.12.0`
 - **Advanced local settings** — validate a custom multilingual Whisper path, select mirror/official downloads, pre-download weights, and inspect size, speed, and percentage.
 - **Task controls** — pause, resume, or cancel while preserving completed extraction, translation, and summary checkpoints.
 - **Unified layout and appearance** — overlay/push applies in windowed and fullscreen playback, controls are grouped, and panel background transparency is configurable.
+- **Workspace-style push mode** — the site header and content reflow together beside a full-height, clearly separated assistant workspace.
 
 ## Architecture
 
