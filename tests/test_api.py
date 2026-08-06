@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from service.app import config
 from service.app import main
 from service.app.main import app
-from service.app.models import JobView
+from service.app.models import CudaRuntimeStatus, JobView, ServiceConfig
 
 
 def test_health_and_config_redaction(tmp_path, monkeypatch):
@@ -122,4 +122,20 @@ def test_job_control_endpoints(monkeypatch):
     assert test_client.post("/jobs/control/pause").json()["state"] == "paused"
     assert test_client.post("/jobs/control/resume").json()["state"] == "running"
     assert test_client.post("/jobs/control/cancel").json()["state"] == "cancelled"
+
+
+def test_cuda_runtime_endpoints(monkeypatch):
+    status = CudaRuntimeStatus(state="idle", stage="尚未配置")
+    installed = CudaRuntimeStatus(
+        installed=True, valid=True, state="completed", stage="GPU 运行库已配置", progress=100
+    )
+    monkeypatch.setattr(main, "get_cuda_runtime_status", lambda: status)
+    monkeypatch.setattr(main, "start_cuda_runtime_install", lambda: installed)
+    test_client = TestClient(app)
+    assert test_client.get("/cuda/status").json()["valid"] is False
+    assert test_client.post("/cuda/install").json()["valid"] is True
+
+
+def test_whisper_defaults_to_cpu():
+    assert ServiceConfig().device == "cpu"
 # Moon End

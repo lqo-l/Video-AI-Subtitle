@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.12.8`
+Current version: `v0.13.0`
 
 </div>
 
@@ -21,6 +21,7 @@ Current version: `v0.12.8`
 - **Site captions first** — reuses public English/Japanese captions, summarizes native Chinese captions directly, and falls back to local Whisper only when needed.
 - **GPU-accelerated transcription** — multilingual `faster-whisper` supports CUDA with automatic CPU fallback.
 - **Runtime-aware fallback** — Auto mode also falls back when missing cuBLAS/cuDNN is detected only during lazy transcription iteration.
+- **Opt-in GPU setup** — Whisper defaults to CPU; users may explicitly install project-private CUDA libraries from Advanced Settings with component, byte, speed, and percentage progress.
 - **Streaming translation** — first batch is playable within seconds; subsequent segments join the timeline as they arrive.
 - **True parallel pipeline** — source-language summarization starts immediately alongside translation, with a live streamed summary.
 - **Clear completion states** — transcript and summary tabs independently highlight processing, completion, and failure.

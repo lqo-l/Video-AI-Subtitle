@@ -161,14 +161,14 @@ body.ytba-site-bilibili:has(.bpx-state-fullscreen) #ytba-root { top:0; height:10
 /* Moon Begin: full-screen overlay is the default; push mode shrinks the actual
    video/control area while keeping the browser's fullscreen host at 100%. */
 .ytba-fullscreen-host { overflow:visible !important; }
-body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host > .bpx-player-primary-area { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
-body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:var(--ytba-panel-width,390px) !important; }
-body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-right .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:0 !important; }
-body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .html5-video-container,
-body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-chrome-bottom,
-body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-gradient-bottom { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
-body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .html5-video-container,
-body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-chrome-bottom,
-body.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-gradient-bottom { margin-left:var(--ytba-panel-width,390px) !important; }
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host > .bpx-player-primary-area { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:var(--ytba-panel-width,390px) !important; }
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-right .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:0 !important; }
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .html5-video-container,
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-chrome-bottom,
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-gradient-bottom { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .html5-video-container,
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-chrome-bottom,
+body.ytba-panel-open.ytba-layout-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-gradient-bottom { margin-left:var(--ytba-panel-width,390px) !important; }
 /* Moon End */
 /* Moon End */

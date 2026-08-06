@@ -25,7 +25,7 @@
       <summary><h2>更多设置</h2></summary>
       <div class="details-body grid">
         <div><label for="whisper_model">Whisper 多语言模型</label><select id="whisper_model"><option>tiny</option><option>base</option><option selected>small</option><option>medium</option></select><small>固定使用多语言权重，可识别英文、日文和中文。</small></div>
-        <div><label for="device">运行设备</label><select id="device"><option value="auto">自动（GPU 优先，失败转 CPU）</option><option value="cuda">仅 NVIDIA GPU</option><option value="cpu">仅 CPU</option></select></div>
+        <div><label for="device">运行设备</label><select id="device"><option value="cpu">仅 CPU（默认，无需额外配置）</option><option value="auto">自动（GPU 优先，失败转 CPU）</option><option value="cuda">仅 NVIDIA GPU</option></select><small>安装 GPU 运行库后可主动切换为“自动”或“仅 NVIDIA GPU”。</small></div>
         <div class="wide"><label for="whisper_model_path">本机模型路径（可选）</label><input id="whisper_model_path" placeholder="留空则自动查找和下载"><small>需包含 config.json、tokenizer.json 与 model.bin；保存后可自动检查。</small></div>
         <div><label for="whisper_download_source">下载源</label><select id="whisper_download_source"><option value="auto">自动（镜像优先，官方回退）</option><option value="mirror">仅 Hugging Face 镜像</option><option value="official">仅 Hugging Face 官方</option></select></div>
         <div><label>面板背景透明度</label><div class="range-row"><input id="panel_opacity" type="range" min="72" max="100" value="94"><output id="opacity_value">94%</output></div><small>只调整面板背景，不影响文字清晰度。</small></div>
@@ -34,6 +34,12 @@
           <div class="progress"><i id="model_bar"></i></div>
           <div id="model_detail" class="path">保存设置后点击“检查模型”。</div>
           <div class="actions"><button type="button" id="check_model" class="secondary">检查模型</button><button type="button" id="download_model">下载 / 继续下载</button></div>
+        </div>
+        <div class="wide model-status">
+          <div class="status-line"><strong id="cuda_stage">GPU 加速为可选配置</strong><span id="cuda_percent">0%</span></div>
+          <div class="progress"><i id="cuda_bar"></i></div>
+          <div id="cuda_detail" class="path">默认使用 CPU。主动安装约需下载 1.37 GB，不修改系统 CUDA 或环境变量。</div>
+          <div class="actions"><button type="button" id="check_cuda" class="secondary">检查 GPU 环境</button><button type="button" id="install_cuda">一键配置 GPU</button></div>
         </div>
       </div>
     </details>

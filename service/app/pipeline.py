@@ -21,7 +21,7 @@ from faster_whisper import WhisperModel
 
 from .config import CACHE_DIR, WORK_DIR, load_config
 from .llm import LlmClient
-from .models import JobView, ModelStatus, ProcessedVideo, Segment
+from .models import CudaRuntimeStatus, JobView, ModelStatus, ProcessedVideo, Segment
 
 
 JOBS: dict[str, JobView] = {}
@@ -29,9 +29,16 @@ JOB_TASKS: dict[str, asyncio.Task] = {}  # Moon Add
 JOB_CONTROLS: dict[str, "JobControl"] = {}  # Moon Add
 MODEL_DOWNLOAD: ModelStatus | None = None  # Moon Add
 MODEL_DOWNLOAD_TASK: asyncio.Task | None = None  # Moon Add
+CUDA_INSTALL: CudaRuntimeStatus | None = None  # Moon Add
+CUDA_INSTALL_TASK: asyncio.Task | None = None  # Moon Add
 CUDA_DLL_HANDLES: list = []  # Moon Add: keep Windows DLL directory cookies alive.
 CUDA_DLL_PATHS: set[str] = set()  # Moon Add
 CUDA_PRELOADED: list = []  # Moon Add: keep explicit WinDLL module handles alive.
+CUDA_PACKAGES = (
+    ("nvidia-cublas-cu12", "cuBLAS 12"),
+    ("nvidia-cudnn-cu12", "cuDNN 9"),
+    ("nvidia-cuda-nvrtc-cu12", "CUDA NVRTC 12"),
+)  # Moon Add
 CACHE_SCHEMA_VERSION = 2  # Moon Add: invalidate pre-normalization subtitle caches.
 SUPPORTED_LANGUAGES = ("en", "ja", "zh")
 WHISPER_MODEL_ENDPOINTS = (
@@ -922,4 +929,124 @@ def cancel_model_download() -> ModelStatus:
     if MODEL_DOWNLOAD:
         MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage = "cancelled", "下载已取消，可稍后续传"
     return MODEL_DOWNLOAD or inspect_whisper_model()
+# Moon End
+
+
+# Moon Begin: opt-in CUDA runtime installer with byte-level download progress.
+def inspect_cuda_runtime() -> CudaRuntimeStatus:
+    _configure_private_cuda_runtime()
+    required = ("cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll")
+    found = {
+        name: next(
+            (str(Path(directory) / name) for directory in CUDA_DLL_PATHS if (Path(directory) / name).is_file()),
+            "",
+        )
+        for name in required
+    }
+    installed = all(found.values())
+    valid = installed and len(CUDA_PRELOADED) >= 3
+    return CudaRuntimeStatus(
+        installed=installed, valid=valid,
+        state="completed" if valid else "idle",
+        stage="GPU 运行库已配置" if valid else "尚未配置 GPU 运行库（默认使用 CPU）",
+        progress=100 if valid else 0,
+        path=str(Path(next(iter(found.values()))).parents[2]) if valid else "",
+    )
+
+
+def get_cuda_runtime_status() -> CudaRuntimeStatus:
+    if CUDA_INSTALL and CUDA_INSTALL.state == "running":
+        return CUDA_INSTALL
+    return inspect_cuda_runtime()
+
+
+def _install_cuda_runtime(progress: Callable[[str, int, int, float], None]) -> None:
+    import httpx
+
+    download_dir = CACHE_DIR.parent / "cuda-runtime-downloads"
+    download_dir.mkdir(parents=True, exist_ok=True)
+    wheels: list[Path] = []
+    package_files: list[tuple[str, str, int, Path]] = []
+    with httpx.Client(follow_redirects=True, timeout=30) as client:
+        for package, label in CUDA_PACKAGES:
+            metadata = client.get(f"https://pypi.org/pypi/{package}/json")
+            metadata.raise_for_status()
+            data = metadata.json()
+            version = data["info"]["version"]
+            release = next(
+                item for item in data["releases"][version]
+                if item["filename"].endswith("win_amd64.whl")
+            )
+            package_files.append(
+                (label, release["url"], int(release["size"]), download_dir / release["filename"])
+            )
+
+    total_bytes = sum(item[2] for item in package_files)
+    completed_bytes = 0
+    for label, url, expected, destination in package_files:
+        existing = destination.stat().st_size if destination.exists() else 0
+        if existing > expected:
+            destination.unlink()
+            existing = 0
+        started = time.monotonic()
+        if existing < expected:
+            headers = {"Range": f"bytes={existing}-"} if existing else {}
+            with httpx.stream("GET", url, headers=headers, follow_redirects=True, timeout=60) as response:
+                if existing and response.status_code != 206:
+                    destination.unlink(missing_ok=True)
+                    existing = 0
+                response.raise_for_status()
+                mode = "ab" if existing else "wb"
+                with destination.open(mode) as output:
+                    downloaded = existing
+                    for chunk in response.iter_bytes(1024 * 1024):
+                        output.write(chunk)
+                        downloaded += len(chunk)
+                        elapsed = max(.001, time.monotonic() - started)
+                        progress(label, completed_bytes + downloaded, total_bytes, (downloaded - existing) / elapsed)
+        if destination.stat().st_size != expected:
+            raise RuntimeError(f"{label} 下载大小校验失败")
+        completed_bytes += expected
+        wheels.append(destination)
+        progress(label, completed_bytes, total_bytes, 0)
+
+    progress("正在安装本机运行库", total_bytes, total_bytes, 0)
+    process = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--no-index", "--force-reinstall", *map(str, wheels)],
+        capture_output=True, text=True, timeout=600,
+    )
+    if process.returncode:
+        raise RuntimeError(process.stderr.strip() or "CUDA 运行库安装失败")
+    _configure_private_cuda_runtime()
+    status = inspect_cuda_runtime()
+    if not status.valid:
+        raise RuntimeError("运行库已安装，但 DLL 加载验证失败，请重启本机服务后检查")
+
+
+def start_cuda_runtime_install() -> CudaRuntimeStatus:
+    global CUDA_INSTALL, CUDA_INSTALL_TASK
+    current = inspect_cuda_runtime()
+    if current.valid:
+        return current
+    if CUDA_INSTALL_TASK and not CUDA_INSTALL_TASK.done():
+        return CUDA_INSTALL
+    CUDA_INSTALL = CudaRuntimeStatus(state="running", stage="正在获取运行库信息")
+
+    async def run() -> None:
+        global CUDA_INSTALL
+        def publish(component: str, downloaded: int, total: int, speed: float) -> None:
+            CUDA_INSTALL.component = component
+            CUDA_INSTALL.stage = component
+            CUDA_INSTALL.downloaded = downloaded
+            CUDA_INSTALL.total = total
+            CUDA_INSTALL.speed = speed
+            CUDA_INSTALL.progress = min(99, int(downloaded * 100 / total)) if total else 0
+        try:
+            await asyncio.to_thread(_install_cuda_runtime, publish)
+            CUDA_INSTALL = inspect_cuda_runtime()
+        except Exception as exc:
+            CUDA_INSTALL.state, CUDA_INSTALL.stage, CUDA_INSTALL.error = "failed", "GPU 运行库配置失败", str(exc)
+
+    CUDA_INSTALL_TASK = asyncio.create_task(run())
+    return CUDA_INSTALL
 # Moon End

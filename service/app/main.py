@@ -8,10 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from .config import CACHE_DIR, ensure_dirs, load_config, save_config
-from .models import JobView, ModelStatus, PublicConfig, ServiceConfig, VideoRequest
+from .models import CudaRuntimeStatus, JobView, ModelStatus, PublicConfig, ServiceConfig, VideoRequest
 from .pipeline import (
-    JOBS, cancel_job, cancel_model_download, create_job, get_model_status, pause_job, resume_job,
-    start_model_download,
+    JOBS, cancel_job, cancel_model_download, create_job, get_cuda_runtime_status,
+    get_model_status, pause_job, resume_job, start_cuda_runtime_install, start_model_download,
 )
 
 
@@ -117,6 +117,16 @@ async def model_download():
 @app.post("/models/download/cancel", response_model=ModelStatus)
 def model_download_cancel():
     return cancel_model_download()
+
+
+@app.get("/cuda/status", response_model=CudaRuntimeStatus)
+def cuda_status():
+    return get_cuda_runtime_status()
+
+
+@app.post("/cuda/install", response_model=CudaRuntimeStatus)
+async def cuda_install():
+    return start_cuda_runtime_install()
 # Moon End
 
 

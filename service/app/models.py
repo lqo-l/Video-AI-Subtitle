@@ -14,7 +14,7 @@ class ServiceConfig(BaseModel):
     # Moon Add: optional local multilingual faster-whisper directory.
     whisper_model_path: str = ""
     whisper_download_source: Literal["auto", "mirror", "official"] = "auto"
-    device: Literal["auto", "cuda", "cpu"] = "auto"
+    device: Literal["auto", "cuda", "cpu"] = "cpu"
 
 
 class PublicConfig(BaseModel):
@@ -91,5 +91,21 @@ class ModelStatus(BaseModel):
     total: int = 0
     speed: float = 0
     source: str = ""
+    error: str | None = None
+# Moon End
+
+
+# Moon Begin: opt-in private CUDA runtime installation state.
+class CudaRuntimeStatus(BaseModel):
+    installed: bool = False
+    valid: bool = False
+    state: Literal["idle", "running", "completed", "failed", "cancelled"] = "idle"
+    stage: str = "尚未配置"
+    component: str = ""
+    progress: int = 0
+    downloaded: int = 0
+    total: int = 0
+    speed: float = 0
+    path: str = ""
     error: str | None = None
 # Moon End
