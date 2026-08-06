@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.13.2`
+Current version: `v0.13.3`
 
 </div>
 
@@ -65,8 +65,8 @@ The local server starts on demand and closes after a task. The API key is stored
 
 ```powershell
 # 1. Clone the repository
-git clone https://github.com/lqo-l/youtube-local-ai-subtitle.git
-cd youtube-local-ai-subtitle
+git clone https://github.com/lqo-l/Video-AI-Subtitle.git
+cd Video-AI-Subtitle
 
 # 2. Install Python dependencies
 Set-ExecutionPolicy -Scope Process Bypass

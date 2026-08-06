@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-当前版本：`v0.13.2`
+当前版本：`v0.13.3`
 
 </div>
 
@@ -65,8 +65,8 @@ YouTube / Bilibili  --  Chrome 扩展  --  Native Messaging  --  本机 FastAPI 
 
 ```powershell
 # 1. 克隆仓库
-git clone https://github.com/lqo-l/youtube-local-ai-subtitle.git
-cd youtube-local-ai-subtitle
+git clone https://github.com/lqo-l/Video-AI-Subtitle.git
+cd Video-AI-Subtitle
 
 # 2. 安装 Python 依赖
 Set-ExecutionPolicy -Scope Process Bypass
