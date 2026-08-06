@@ -461,21 +461,44 @@ def _transcribe(
     device = device_setting
     if device == "auto":
         device = "cuda" if ctranslate2.get_cuda_device_count() else "cpu"
-    compute_type = "float16" if device == "cuda" else "int8"
+    def run(active_device: str) -> tuple[list[Segment], str]:
+        """Consume the lazy segment iterator while the device fallback is active."""
+        # Moon Begin: CTranslate2 loads cuBLAS on the first generator iteration,
+        # not necessarily while constructing WhisperModel or calling transcribe.
+        compute_type = "float16" if active_device == "cuda" else "int8"
+        model = WhisperModel(prepared_model, device=active_device, compute_type=compute_type)
+        items, info = model.transcribe(
+            str(audio), language=None, vad_filter=True, beam_size=5
+        )
+        raw_segments = [
+            (item.start, item.end, item.text.strip())
+            for item in items if item.text.strip()
+        ]
+        language = info.language if info.language in SUPPORTED_LANGUAGES else ""
+        if not language:
+            raise RuntimeError(
+                f"仅支持英文、日文或中文语音，检测到：{info.language or '未知'}"
+            )
+        return [
+            Segment(start=start, end=end, en=text, source_language=language)
+            for start, end, text in raw_segments
+        ], language
+        # Moon End
+
     try:
-        model = WhisperModel(prepared_model, device=device, compute_type=compute_type)
-    except Exception:
+        return run(device)
+    except Exception as exc:
         if device_setting != "auto" or device == "cpu":
+            message = str(exc)
+            if device == "cuda" and ("cublas" in message.lower() or "cudnn" in message.lower()):
+                raise RuntimeError(
+                    f"CUDA 语音运行库不可用：{message}。请安装 CUDA 12 的 cuBLAS/cuDNN，"
+                    "或在更多设置中选择“自动”/“仅 CPU”。"
+                ) from exc
             raise
-        model = WhisperModel(prepared_model, device="cpu", compute_type="int8")
-    items, info = model.transcribe(str(audio), language=None, vad_filter=True, beam_size=5)
-    language = info.language if info.language in SUPPORTED_LANGUAGES else ""
-    if not language:
-        raise RuntimeError(f"仅支持英文、日文或中文语音，检测到：{info.language or '未知'}")
-    return [
-        Segment(start=x.start, end=x.end, en=x.text.strip(), source_language=language)
-        for x in items if x.text.strip()
-    ], language
+        if download_progress:
+            download_progress(100, 0, 0, 0, "GPU 运行库不可用，已降级 CPU")
+        return run("cpu")
 
 
 async def process_job(job_id: str, url: str) -> None:
@@ -556,7 +579,11 @@ async def process_job(job_id: str, url: str) -> None:
                     speed: float, source_name: str,
                 ) -> None:
                     if percent >= 100:
-                        job.stage, job.progress = "正在识别语音", 45
+                        job.stage = (
+                            "GPU 运行库不可用，已自动切换 CPU 识别"
+                            if "降级 CPU" in source_name else "正在识别语音"
+                        )
+                        job.progress = 45
                     else:
                         if total:
                             size_text = f"{human_size(downloaded)} / {human_size(total)}"

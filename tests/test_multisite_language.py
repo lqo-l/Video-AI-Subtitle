@@ -76,6 +76,48 @@ def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_
     assert segments[0].source_language == "ja"
 
 
+def test_transcribe_auto_falls_back_when_cuda_fails_during_iteration(monkeypatch, tmp_path):
+    """CTranslate2 may load cuBLAS only after the lazy iterator starts."""
+    # Moon Begin
+    observed_devices = []
+    progress = []
+
+    class FakeInfo:
+        language = "en"
+
+    class FakeItem:
+        start, end, text = 0.0, 1.0, " hello "
+
+    class FakeWhisperModel:
+        def __init__(self, model_name, device, compute_type):
+            self.device = device
+            observed_devices.append(device)
+
+        def transcribe(self, *args, **kwargs):
+            if self.device == "cuda":
+                def broken_iterator():
+                    raise RuntimeError("Library cublas64_12.dll is not found")
+                    yield
+                return broken_iterator(), FakeInfo()
+            return [FakeItem()], FakeInfo()
+
+    import ctranslate2
+    monkeypatch.setattr(ctranslate2, "get_cuda_device_count", lambda: 1)
+    monkeypatch.setattr(pipeline, "WhisperModel", FakeWhisperModel)
+    monkeypatch.setattr(pipeline, "_prepare_whisper_model", lambda model, callback: model)
+
+    segments, language = pipeline._transcribe(
+        tmp_path / "audio.wav", "small", "auto",
+        lambda *values: progress.append(values),
+    )
+
+    assert observed_devices == ["cuda", "cpu"]
+    assert language == "en"
+    assert segments[0].en == "hello"
+    assert progress[-1][-1] == "GPU 运行库不可用，已降级 CPU"
+    # Moon End
+
+
 def test_prepare_whisper_model_reuses_complete_legacy_model(monkeypatch, tmp_path):
     # Moon Add: an existing application model must bypass all network access.
     model_dir = tmp_path / "models" / "small"
