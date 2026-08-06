@@ -152,7 +152,9 @@
     const root=document.querySelector("#ytba-root");
     const player=video();
     const bilibiliFullscreen=site==="bilibili"
-      ? [...document.querySelectorAll(".bpx-state-fullscreen")].find(element=>element.contains(player))
+      ? (document.body.classList.contains("webscreen-fix")
+          ? playerContainer()
+          : [...document.querySelectorAll(".bpx-state-fullscreen")].find(element=>element.contains(player)))
       : null;
     const host=document.fullscreenElement || bilibiliFullscreen || null;
     document.querySelectorAll(".ytba-fullscreen-host").forEach(element=>{
@@ -494,6 +496,9 @@
 
   chrome.runtime.onMessage.addListener(message => { if (message.type === "start") start(); if (message.type === "open") ensurePanel(); });
   document.addEventListener("fullscreenchange",updateFullscreenLayout);
+  // Moon Add: Bilibili web-fullscreen only toggles a body class, so react
+  // immediately instead of waiting for the navigation polling interval.
+  new MutationObserver(updateFullscreenLayout).observe(document.body,{attributes:true,attributeFilter:["class"]});
   updateFullscreenLayout();
   chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs,panelPrefs:defaultPanelPrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};panelPrefs={...defaultPanelPrefs,...data.panelPrefs};if(subtitlePrefs.language==="en")subtitlePrefs.language="source";applyPanelPrefs();applySubtitlePrefs();refreshSubtitleControls();});
   setInterval(()=>{watchNavigation();updateFullscreenLayout();}, 1000);

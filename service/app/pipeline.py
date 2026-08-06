@@ -223,60 +223,66 @@ def _prepare_whisper_model(
 ) -> str:
     """Download selected model once and report byte-based first-run progress."""
     # Moon Begin
-    from huggingface_hub import hf_hub_download, snapshot_download
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+    from faster_whisper.utils import download_model
     from tqdm.auto import tqdm
 
     model_name = model_name.removesuffix(".en")
     repo_id = model_name if "/" in model_name else f"Systran/faster-whisper-{model_name}"
-    model_dir = CACHE_DIR.parent / "models" / model_name.replace("/", "--")
-    expected = ("config.json", "model.bin", "tokenizer.json")
-    if all((model_dir / name).exists() for name in expected):
+    # A complete standard cache must never perform a network metadata request.
+    try:
+        cached_path = download_model(model_name, local_files_only=True)
         if progress_callback:
             progress_callback(100)
-        return str(model_dir)
+        return str(cached_path)
+    except (LocalEntryNotFoundError, OSError):
+        pass
 
-    model_dir.mkdir(parents=True, exist_ok=True)
+    legacy_model_dir = CACHE_DIR.parent / "models" / model_name.replace("/", "--")
+    expected = ("config.json", "model.bin", "tokenizer.json")
+    if all((legacy_model_dir / name).exists() for name in expected):
+        if progress_callback:
+            progress_callback(100)
+        return str(legacy_model_dir)
+
     allow_patterns = [
         "config.json", "preprocessor_config.json", "model.bin",
         "tokenizer.json", "vocabulary.*",
     ]
-    # Dry-run metadata gives a stable total even when files download sequentially.
-    class SilentProgress(tqdm):
+    reported_percent = 0
+
+    class DownloadProgress(tqdm):
+        """Forward Hugging Face's aggregate byte progress to the job view."""
         def __init__(self, *args, **kwargs):
             kwargs["disable"] = True
             super().__init__(*args, **kwargs)
 
-    files = snapshot_download(
-        repo_id, allow_patterns=allow_patterns, dry_run=True,
-        tqdm_class=SilentProgress,
-    )
-    total_bytes = max(1, sum(item.file_size for item in files))
-    completed_bytes = sum(item.file_size for item in files if not item.will_download)
+        def update(self, amount=1):
+            nonlocal reported_percent
+            result = super().update(amount)
+            if progress_callback and self.total:
+                percent = min(99, int(self.n * 100 / self.total))
+                if percent > reported_percent:
+                    reported_percent = percent
+                    progress_callback(percent)
+            return result
 
-    for item in files:
-        if not item.will_download:
-            hf_hub_download(repo_id, item.filename, local_dir=model_dir)
-            continue
-        file_base = completed_bytes
-
-        class DownloadProgress(tqdm):
-            def update(self, amount=1):
-                result = super().update(amount)
-                if progress_callback:
-                    current = file_base + min(self.n, item.file_size)
-                    progress_callback(min(99, int(current * 100 / total_bytes)))
-                return result
-
-        hf_hub_download(
-            repo_id, item.filename, local_dir=model_dir,
-            tqdm_class=DownloadProgress,
-        )
-        completed_bytes += item.file_size
-        if progress_callback:
-            progress_callback(min(99, int(completed_bytes * 100 / total_bytes)))
+    # Moon Modified: new downloads use faster-whisper's standard cache. If the
+    # previous release already wrote a partial legacy copy, resume that copy so
+    # the user does not lose hundreds of megabytes of download progress.
+    if progress_callback:
+        progress_callback(0)
+    download_options = {
+        "allow_patterns": allow_patterns,
+        "tqdm_class": DownloadProgress,
+    }
+    if legacy_model_dir.exists() and any(legacy_model_dir.iterdir()):
+        download_options["local_dir"] = legacy_model_dir
+    model_path = snapshot_download(repo_id, **download_options)
     if progress_callback:
         progress_callback(100)
-    return str(model_dir)
+    return str(model_path)
     # Moon End
 
 
@@ -382,10 +388,11 @@ async def process_job(job_id: str, url: str) -> None:
                     if percent >= 100:
                         job.stage, job.progress = "正在识别语音", 45
                     else:
-                        job.stage = f"正在下载语音模型 {percent}%"
+                        suffix = "（正在连接模型仓库）" if percent == 0 else ""
+                        job.stage = f"正在下载语音模型 {percent}%{suffix}"
                         job.progress = 25 + round(percent * 0.2)
 
-                job.stage, job.progress = "正在准备语音模型", 25
+                job.stage, job.progress = "正在下载语音模型 0%（正在连接模型仓库）", 25
                 extracted, source_language = await asyncio.to_thread(
                     _transcribe, audio, config.whisper_model, config.device,
                     report_model_download,

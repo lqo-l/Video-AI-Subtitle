@@ -86,7 +86,7 @@ Open the extension popup, click **Settings**, and fill in:
 
 ## Usage
 
-Navigate to an English or Japanese YouTube/Bilibili video. Click the extension icon and select **Process Current Video**. Public captions are reused when available; otherwise local Whisper downloads and transcribes the audio with automatic language detection. The first use of a Whisper model shows byte-based download progress; later runs reuse the local cache. The first translated batch becomes playable while the summary runs in parallel.
+Navigate to an English or Japanese YouTube/Bilibili video. Click the extension icon and select **Process Current Video**. Public captions are reused when available; otherwise local Whisper downloads and transcribes the audio with automatic language detection. The first use of a Whisper model shows byte-based download progress; later runs reuse the standard Hugging Face cache. English-only `.en` weights cannot transcribe Japanese, so enabling Japanese still requires the matching multilingual model. The first translated batch becomes playable while the summary runs in parallel.
 
 After a browser, network, or local-service interruption, click **Process Current Video** again or **↻ Retry** in the sidebar. Completed extraction, translation, and summary progress is reused. **Clear Subtitle Cache** also removes these checkpoints.
 
