@@ -76,6 +76,19 @@ def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_
     assert segments[0].source_language == "ja"
 
 
+def test_prepare_whisper_model_reuses_complete_legacy_model(monkeypatch, tmp_path):
+    # Moon Add: an existing application model must bypass all network access.
+    model_dir = tmp_path / "models" / "small"
+    model_dir.mkdir(parents=True)
+    for name in ("config.json", "model.bin", "tokenizer.json"):
+        (model_dir / name).write_bytes(b"cached")
+    (model_dir / ".ytba-model-size").write_text("6")
+    monkeypatch.setattr(pipeline, "CACHE_DIR", tmp_path / "cache")
+    progress = []
+    assert pipeline._prepare_whisper_model("small.en", progress.append) == str(model_dir)
+    assert progress == [100]
+
+
 def test_bilibili_japanese_pipeline_writes_site_specific_cache(tmp_path, monkeypatch):
     cache_dir, work_dir = tmp_path / "cache", tmp_path / "work"
     cache_dir.mkdir()

@@ -5,6 +5,8 @@ import html
 import json
 import re
 import shutil
+import subprocess
+import time
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -224,27 +226,94 @@ def _prepare_whisper_model(
     """Download selected model once and report byte-based first-run progress."""
     # Moon Begin
     from huggingface_hub import snapshot_download
-    from huggingface_hub.errors import LocalEntryNotFoundError
-    from faster_whisper.utils import download_model
+    from huggingface_hub.constants import HF_HUB_CACHE
     from tqdm.auto import tqdm
 
     model_name = model_name.removesuffix(".en")
     repo_id = model_name if "/" in model_name else f"Systran/faster-whisper-{model_name}"
-    # A complete standard cache must never perform a network metadata request.
-    try:
-        cached_path = download_model(model_name, local_files_only=True)
-        if progress_callback:
-            progress_callback(100)
-        return str(cached_path)
-    except (LocalEntryNotFoundError, OSError):
-        pass
+    # A complete standard cache must never perform a network request or wait
+    # for a stale Hugging Face lock left by an interrupted download.
+    standard_repo = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}"
+    standard_snapshots = standard_repo / "snapshots"
+    for cached_path in standard_snapshots.glob("*") if standard_snapshots.exists() else []:
+        if all((cached_path / name).exists() for name in ("config.json", "model.bin", "tokenizer.json")):
+            if progress_callback:
+                progress_callback(100)
+            return str(cached_path)
 
     legacy_model_dir = CACHE_DIR.parent / "models" / model_name.replace("/", "--")
     expected = ("config.json", "model.bin", "tokenizer.json")
-    if all((legacy_model_dir / name).exists() for name in expected):
+    completion_marker = legacy_model_dir / ".ytba-model-size"
+    model_file = legacy_model_dir / "model.bin"
+    marked_size = int(completion_marker.read_text().strip()) if completion_marker.exists() else 0
+    if (
+        all((legacy_model_dir / name).exists() for name in expected)
+        and marked_size > 0
+        and model_file.stat().st_size == marked_size
+    ):
         if progress_callback:
             progress_callback(100)
         return str(legacy_model_dir)
+
+    # Moon Begin: releases 0.11.2/0.11.3 may leave a valid partial model.bin in
+    # Hugging Face's local-dir cache. Resume it with plain HTTP Range requests;
+    # this avoids Xet's long 0% reconstruction phase and preserves downloaded MB.
+    download_cache = legacy_model_dir / ".cache" / "huggingface" / "download"
+    partial_candidates = sorted(
+        download_cache.glob("*.incomplete"),
+        key=lambda path: path.stat().st_size,
+        reverse=True,
+    ) if download_cache.exists() else []
+    partial_model = next((path for path in partial_candidates if path.stat().st_size), None)
+    if partial_model and (legacy_model_dir / "config.json").exists():
+        import httpx
+
+        model_url = f"https://huggingface.co/{repo_id}/resolve/main/model.bin"
+        downloaded = partial_model.stat().st_size
+        probe = None
+        for _ in range(3):
+            try:
+                probe = httpx.get(
+                    model_url, headers={"Range":"bytes=0-0"}, follow_redirects=True,
+                    timeout=15,
+                )
+                probe.raise_for_status()
+                break
+            except httpx.HTTPError:
+                probe = None
+        if probe is None:
+            raise RuntimeError("连接 Hugging Face 模型仓库超时，请检查网络后重试")
+        match = re.search(r"/(\d+)$", probe.headers.get("content-range", ""))
+        total_bytes = int(match.group(1)) if match else 0
+        if probe.status_code != 206 or total_bytes <= downloaded:
+            raise RuntimeError("无法获取语音模型断点信息，请检查网络后重试")
+        if progress_callback:
+            progress_callback(min(99, int(downloaded * 100 / total_bytes)))
+        curl = shutil.which("curl.exe") or shutil.which("curl")
+        if not curl:
+            raise RuntimeError("系统缺少 curl，无法可靠续传语音模型")
+        process = subprocess.Popen(
+            [curl, "-L", "--retry", "5", "--retry-all-errors",
+             "--connect-timeout", "15", "--max-time", "900", "-C", "-",
+             "-o", str(partial_model), model_url],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        while process.poll() is None:
+            downloaded = partial_model.stat().st_size
+            if progress_callback:
+                progress_callback(min(99, int(downloaded * 100 / total_bytes)))
+            time.sleep(0.5)
+        if process.returncode:
+            raise RuntimeError(f"语音模型下载中断（curl {process.returncode}），请重试")
+        downloaded = partial_model.stat().st_size
+        if downloaded != total_bytes:
+            raise RuntimeError(f"语音模型大小不正确：{downloaded} / {total_bytes}")
+        partial_model.replace(legacy_model_dir / "model.bin")
+        completion_marker.write_text(str(total_bytes), encoding="ascii")
+        if progress_callback:
+            progress_callback(100)
+        return str(legacy_model_dir)
+    # Moon End
 
     allow_patterns = [
         "config.json", "preprocessor_config.json", "model.bin",
@@ -388,11 +457,11 @@ async def process_job(job_id: str, url: str) -> None:
                     if percent >= 100:
                         job.stage, job.progress = "正在识别语音", 45
                     else:
-                        suffix = "（正在连接模型仓库）" if percent == 0 else ""
+                        suffix = "（连接超过 30 秒会自动报错）" if percent == 0 else ""
                         job.stage = f"正在下载语音模型 {percent}%{suffix}"
                         job.progress = 25 + round(percent * 0.2)
 
-                job.stage, job.progress = "正在下载语音模型 0%（正在连接模型仓库）", 25
+                job.stage, job.progress = "正在下载语音模型 0%（连接超过 30 秒会自动报错）", 25
                 extracted, source_language = await asyncio.to_thread(
                     _transcribe, audio, config.whisper_model, config.device,
                     report_model_download,

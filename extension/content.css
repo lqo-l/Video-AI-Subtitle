@@ -1,14 +1,14 @@
 #ytba-root { position: fixed; top: 64px; right: 0; width: var(--ytba-panel-width,390px); height: calc(100vh - 64px); z-index: 2147483640; background: #111318; color: #f2f4f8; border-left: 1px solid #333842; box-shadow: -8px 0 24px #0008; font: 14px/1.5 Arial, sans-serif; display: flex; flex-direction: column; transform: translate3d(0,0,0); transition: transform .34s cubic-bezier(.22,.8,.25,1), box-shadow .34s ease; will-change: transform; }
 /* Moon Begin: slide the fixed-width panel and page content on one animation track. */
-#ytba-root.ytba-collapsed { transform: translate3d(calc(var(--ytba-panel-width,390px) - 44px),0,0); background: transparent; border-left-color: transparent; box-shadow: none; pointer-events: none; }
+#ytba-root.ytba-collapsed { width:44px; height:136px; transform:none; background:transparent !important; border-color:transparent; box-shadow:none !important; pointer-events:none; }
 body.ytba-panel-left #ytba-root { left:0; right:auto; border-left:0; border-right:1px solid #333842; box-shadow:8px 0 24px #0008; }
-body.ytba-panel-left #ytba-root.ytba-collapsed { transform:translate3d(calc(44px - var(--ytba-panel-width,390px)),0,0); border-right-color:transparent; }
+body.ytba-panel-left #ytba-root.ytba-collapsed { transform:none; border-right-color:transparent; }
 #ytba-root > * { transition: opacity .18s ease .08s; }
 #ytba-root.ytba-collapsed > *:not(.ytba-edge-handle) { opacity: 0; pointer-events: none; transition-delay: 0s; }
 .ytba-edge-handle { display: none; }
 #ytba-root.ytba-collapsed .ytba-edge-handle { position: absolute; left: 0; top: 48px; display: flex; width: 44px; height: 88px; padding: 0; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #fff; background: linear-gradient(155deg,#6d5cff 0%,#3478f6 48%,#1e63d7 100%); border: 1px solid rgba(190,211,255,.42); border-right: 0; border-radius: 14px 0 0 14px; box-shadow: -5px 8px 22px rgba(31,76,180,.3), inset 0 1px 0 rgba(255,255,255,.2); opacity: 1; pointer-events: auto; cursor: pointer; transition: transform .2s ease, filter .2s ease, box-shadow .2s ease; }
 #ytba-root.ytba-collapsed .ytba-edge-handle:hover { transform: translateX(-4px); filter: brightness(1.08); box-shadow: -8px 9px 26px rgba(31,76,180,.4), inset 0 1px 0 rgba(255,255,255,.25); }
-body.ytba-panel-left #ytba-root.ytba-collapsed .ytba-edge-handle { left:auto; right:0; border-right:1px solid rgba(190,211,255,.42); border-left:0; border-radius:0 14px 14px 0; box-shadow:5px 8px 22px rgba(31,76,180,.3),inset 0 1px 0 rgba(255,255,255,.2); }
+body.ytba-panel-left #ytba-root.ytba-collapsed .ytba-edge-handle { left:0; right:auto; border-right:1px solid rgba(190,211,255,.42); border-left:0; border-radius:0 14px 14px 0; box-shadow:5px 8px 22px rgba(31,76,180,.3),inset 0 1px 0 rgba(255,255,255,.2); }
 body.ytba-panel-left #ytba-root.ytba-collapsed .ytba-edge-handle:hover { transform:translateX(4px); box-shadow:8px 9px 26px rgba(31,76,180,.4),inset 0 1px 0 rgba(255,255,255,.25); }
 .ytba-edge-mark { display: grid; width: 30px; height: 30px; place-items: center; font-size: 18px; line-height: 1; font-weight: 750; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.2); border-radius: 9px; text-shadow: 0 1px 5px rgba(15,34,90,.5); }
 .ytba-edge-handle i { font: 22px/16px Arial,sans-serif; opacity: .9; }
@@ -95,23 +95,30 @@ body.ytba-panel-open.ytba-panel-collapsed #page-manager, body.ytba-panel-open.yt
 body.ytba-panel-collapsed #columns, body.ytba-fullscreen #columns { margin-right: 0; }
 body.ytba-fullscreen #ytba-root { top: 0; height: 100vh; }
 body.ytba-fullscreen #ytba-root { z-index:2147483647; }
-body.ytba-fullscreen #ytba-root.ytba-collapsed { top: 0; height: 100vh; }
+body.ytba-fullscreen #ytba-root.ytba-collapsed { top:0; height:136px; }
 body:has(.html5-video-player.ytp-fullscreen) #ytba-root { top: 0; height: 100vh; }
-body:has(.html5-video-player.ytp-fullscreen) #ytba-root.ytba-collapsed { top: 0; height: 100vh; }
+body:has(.html5-video-player.ytp-fullscreen) #ytba-root.ytba-collapsed { top:0; height:136px; }
 body:has(.html5-video-player.ytp-fullscreen) #page-manager { margin-right:0; margin-left:0; }
 /* Moon Begin: Bilibili uses different page/player containers. */
 body.ytba-site-bilibili #ytba-root { top:0; height:100vh; }
+body.ytba-site-bilibili #ytba-root.ytba-collapsed { height:136px; }
 body.ytba-site-bilibili.ytba-panel-open.ytba-panel-right #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-right:var(--ytba-panel-width,390px); margin-left:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
 body.ytba-site-bilibili.ytba-panel-open.ytba-panel-left #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-left:var(--ytba-panel-width,390px); margin-right:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
 body.ytba-site-bilibili.ytba-panel-open.ytba-panel-collapsed #app, body.ytba-site-bilibili.ytba-panel-open.ytba-fullscreen #app { width:100%; margin-right:0; margin-left:0; }
 body.ytba-site-bilibili .bpx-player-container, body.ytba-site-bilibili .bilibili-player { position:relative; }
 body.ytba-site-bilibili.ytba-panel-open:has(.bpx-state-fullscreen) #app, body.ytba-site-bilibili.ytba-panel-open.webscreen-fix #app { width:100%; margin-right:0; margin-left:0; }
 body.ytba-site-bilibili:has(.bpx-state-fullscreen) #ytba-root { top:0; height:100vh; }
-/* Moon Begin: full-screen overlay is the default; push mode reserves a real viewport strip. */
+/* Moon Begin: full-screen overlay is the default; push mode shrinks the actual
+   video/control area while keeping the browser's fullscreen host at 100%. */
 .ytba-fullscreen-host { overflow:visible !important; }
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-right .ytba-fullscreen-host { left:0 !important; right:var(--ytba-panel-width,390px) !important; width:calc(100% - var(--ytba-panel-width,390px)) !important; margin:0 !important; }
-body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host { left:var(--ytba-panel-width,390px) !important; right:0 !important; width:calc(100% - var(--ytba-panel-width,390px)) !important; margin:0 !important; }
-/* The fixed assistant intentionally occupies the reserved strip outside the host box. */
-body.ytba-fullscreen-mode-push .ytba-fullscreen-host #ytba-root { position:fixed; }
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host > .bpx-player-primary-area { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:var(--ytba-panel-width,390px) !important; }
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-right .ytba-fullscreen-host > .bpx-player-primary-area { margin-left:0 !important; }
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .html5-video-container,
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-chrome-bottom,
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed) .ytba-fullscreen-host .ytp-gradient-bottom { width:calc(100% - var(--ytba-panel-width,390px)) !important; }
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .html5-video-container,
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-chrome-bottom,
+body.ytba-fullscreen-mode-push:not(.ytba-panel-collapsed).ytba-panel-left .ytba-fullscreen-host .ytp-gradient-bottom { margin-left:var(--ytba-panel-width,390px) !important; }
 /* Moon End */
 /* Moon End */

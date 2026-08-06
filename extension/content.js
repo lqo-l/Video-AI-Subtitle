@@ -136,6 +136,7 @@
     const root=document.querySelector("#ytba-root");
     root?.classList.toggle("ytba-collapsed",collapsed);
     document.body.classList.toggle("ytba-panel-collapsed",collapsed);
+    updateFullscreenLayout(); // Moon Add: push mode must restore/reapply immediately.
     // Moon Add: keep YouTube's player layout in lockstep with the CSS transition.
     cancelAnimationFrame(layoutAnimationFrame);
     const started=performance.now();
