@@ -18,4 +18,13 @@ def test_bilibili_uses_draggable_launcher_instead_of_prompt():
     assert 'launcher.id="ytba-launcher"' in script
     assert 'launcher.textContent="译"' in script
     assert "bindLauncherDrag" in script
+
+
+def test_collapsed_panel_hides_content_without_reflow_flash():
+    css = (Path(__file__).parents[1] / "extension" / "content.css").read_text(encoding="utf-8")
+    collapsed_rule = next(
+        line for line in css.splitlines()
+        if "#ytba-root.ytba-collapsed > *:not(.ytba-edge-handle)" in line
+    )
+    assert "display:none !important" in collapsed_rule
 # Moon End

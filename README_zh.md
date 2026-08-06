@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-当前版本：`v0.13.1`
+当前版本：`v0.13.2`
 
 </div>
 
