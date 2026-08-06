@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -26,12 +29,47 @@ JOB_TASKS: dict[str, asyncio.Task] = {}  # Moon Add
 JOB_CONTROLS: dict[str, "JobControl"] = {}  # Moon Add
 MODEL_DOWNLOAD: ModelStatus | None = None  # Moon Add
 MODEL_DOWNLOAD_TASK: asyncio.Task | None = None  # Moon Add
+CUDA_DLL_HANDLES: list = []  # Moon Add: keep Windows DLL directory cookies alive.
+CUDA_DLL_PATHS: set[str] = set()  # Moon Add
+CUDA_PRELOADED: list = []  # Moon Add: keep explicit WinDLL module handles alive.
 CACHE_SCHEMA_VERSION = 2  # Moon Add: invalidate pre-normalization subtitle caches.
 SUPPORTED_LANGUAGES = ("en", "ja", "zh")
 WHISPER_MODEL_ENDPOINTS = (
     ("HF 镜像", "https://hf-mirror.com"),
     ("Hugging Face 官方源", "https://huggingface.co"),
 )  # Moon Add: prefer the mainland-friendly mirror and fall back automatically.
+
+
+def _configure_private_cuda_runtime() -> list[str]:
+    """Expose optional NVIDIA wheels installed inside this project's venv."""
+    # Moon Begin
+    if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
+        return []
+    registered: list[str] = []
+    for search_root in map(Path, sys.path):
+        nvidia_root = search_root / "nvidia"
+        for component in ("cublas", "cudnn", "cuda_nvrtc"):
+            dll_dir = nvidia_root / component / "bin"
+            if not dll_dir.is_dir() or str(dll_dir) in CUDA_DLL_PATHS:
+                continue
+            handle = os.add_dll_directory(str(dll_dir))
+            CUDA_DLL_HANDLES.append(handle)
+            CUDA_DLL_PATHS.add(str(dll_dir))
+            registered.append(str(dll_dir))
+    if not CUDA_PRELOADED:
+        # CTranslate2 resolves these libraries lazily during the first segment
+        # iteration. Explicit loading makes project-private wheels discoverable
+        # even when the process was launched by Chrome Native Messaging.
+        dll_names = ("cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll")
+        for name in dll_names:
+            dll_path = next(
+                (Path(directory) / name for directory in CUDA_DLL_PATHS if (Path(directory) / name).is_file()),
+                None,
+            )
+            if dll_path:
+                CUDA_PRELOADED.append(ctypes.WinDLL(str(dll_path)))
+    return registered
+    # Moon End
 
 
 # Moon Begin: cooperative controls preserve checkpoints at translation/summary boundaries.
@@ -449,6 +487,7 @@ def _transcribe(
     model_path: str = "",
     download_source: str = "auto",
 ) -> tuple[list[Segment], str]:
+    _configure_private_cuda_runtime()  # Moon Add: load optional one-click runtime wheels.
     import ctranslate2
 
     model_name = model_name.removesuffix(".en")  # Moon Add: require multilingual weights.
@@ -811,6 +850,7 @@ def cancel_job(job_id: str) -> JobView:
 
 
 def inspect_whisper_model() -> ModelStatus:
+    _configure_private_cuda_runtime()  # Moon Add
     import ctranslate2
     from huggingface_hub.constants import HF_HUB_CACHE
 

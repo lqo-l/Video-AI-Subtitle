@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "视频 AI 双语字幕助手",
-  "version": "0.12.7",
+  "version": "0.12.8",
   "description": "为 YouTube 与 Bilibili 英文/日文视频生成中文字幕、摘要和关键点。",
   "permissions": ["storage", "notifications", "downloads", "nativeMessaging"],
   "host_permissions": ["http://127.0.0.1:18765/*", "https://www.youtube.com/*", "https://www.bilibili.com/*"],
