@@ -93,7 +93,15 @@ body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, bod
 .ytba-stream-caret { display:inline-block; width:2px; height:1.1em; margin-left:3px; vertical-align:-2px; background:#7aa6ff; animation:ytba-caret .85s steps(1) infinite; }
 @keyframes ytba-caret { 50% { opacity:0; } }
 .ytba-summary-error { margin-top:10px; padding:12px; color:#ffd1d1; background:#3a2025; border:1px solid #64323c; border-radius:8px; }
-.ytba-body { flex: 1; overflow: auto; padding: 10px 14px; }
+.ytba-body { flex: 1; overflow: auto; padding: 10px 14px; scrollbar-width:thin;scrollbar-color:#626b79 transparent; }
+/* Moon Begin: Chrome otherwise inherits a bright native scrollbar from the host page. */
+#ytba-root .ytba-body::-webkit-scrollbar { width:10px;height:10px; }
+#ytba-root .ytba-body::-webkit-scrollbar-track { background:transparent; }
+#ytba-root .ytba-body::-webkit-scrollbar-thumb { min-height:38px;background:#626b79;background-clip:padding-box;border:3px solid transparent;border-radius:10px; }
+#ytba-root .ytba-body::-webkit-scrollbar-thumb:hover { background:#7b8594;background-clip:padding-box; }
+#ytba-root .ytba-body::-webkit-scrollbar-button { display:none;width:0;height:0; }
+#ytba-root .ytba-body::-webkit-scrollbar-corner { background:transparent; }
+/* Moon End */
 .ytba-segment { padding: 9px; border-radius: 6px; cursor: pointer; margin-bottom: 6px; }
 .ytba-segment:hover, .ytba-segment.active { background: #293142; }
 .ytba-time { color: #76a7ff; font-size: 12px; }
@@ -117,7 +125,7 @@ body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-primary-tools { padding:7
 body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-tabs { margin:0 12px;border:1px solid #343b47;border-radius:9px;background:rgba(0,0,0,.12);overflow:hidden; }
 body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-tabs button { padding:8px 10px; }
 body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-tabs button.active { background:rgba(75,140,255,.12);border-bottom-color:#6d9eff; }
-body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-body { margin-top:5px;padding:10px 16px 20px;scrollbar-width:thin;scrollbar-color:#586170 transparent; }
+body.ytba-layout-push:not(.ytba-panel-collapsed) .ytba-body { margin-top:5px;padding:10px 16px 20px; }
 body.ytba-site-youtube.ytba-panel-open ytd-masthead#masthead { transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1);will-change:width,margin; }
 body.ytba-layout-push.ytba-site-youtube.ytba-panel-open:not(.ytba-panel-collapsed) ytd-masthead#masthead { width:calc(100% - var(--ytba-panel-width,390px)); }
 body.ytba-layout-push.ytba-site-youtube.ytba-panel-open.ytba-panel-left:not(.ytba-panel-collapsed) ytd-masthead#masthead { margin-left:var(--ytba-panel-width,390px); }
