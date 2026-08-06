@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.13.0`
+Current version: `v0.13.1`
 
 </div>
 
@@ -37,6 +37,7 @@ Current version: `v0.13.0`
 - **Unified layout and appearance** — overlay/push applies in windowed and fullscreen playback, controls are grouped, and panel background transparency is configurable.
 - **Workspace-style push mode** — the site header and content reflow together beside a full-height, clearly separated assistant workspace.
 - **Bilibili header awareness** — the sidebar stays below the live site header in page mode and returns to full height in fullscreen.
+- **Quiet Bilibili launcher** — replaces the automatic prompt with a draggable, position-persistent “译” button.
 
 ## Architecture
 

@@ -4,10 +4,11 @@ const fields=["base_url","translation_model","summary_model","whisper_model","wh
 const KEY_PLACEHOLDER="••••••••";
 let modelPoll=null;
 let cudaPoll=null;
+let serviceReady=false;
 const byId=id=>document.getElementById(id);
 const humanSize=value=>value?`${(value/1024/1024).toFixed(1)} MB`:"0 MB";
 
-async function ensureService(){const response=await chrome.runtime.sendMessage({type:"ensure-service"});if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));}
+async function ensureService(){if(serviceReady){try{await request("/health");return;}catch(_){serviceReady=false;}}const response=await chrome.runtime.sendMessage({type:"ensure-service"});if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));serviceReady=true;}
 async function request(path,options={}){const response=await fetch(`${API}${path}`,options);if(!response.ok)throw new Error((await response.json().catch(()=>null))?.detail||`服务错误 ${response.status}`);return response.json();}
 function renderModel(data){
   model_stage.textContent=data.stage+(data.source?` · ${data.source}`:"");
@@ -17,7 +18,7 @@ function renderModel(data){
   model_detail.textContent=[data.resolved_path||data.configured_path||"未找到可用模型",transfer,data.error].filter(Boolean).join(" · ");
   if(data.state==="running"){clearTimeout(modelPoll);modelPoll=setTimeout(checkModel,700);}
 }
-async function checkModel(){try{renderModel(await request("/models/status"));}catch(error){model_stage.textContent=`检查失败：${error.message}`;}}
+async function checkModel(){check_model.disabled=true;model_stage.textContent="正在检查模型…";model_detail.textContent="正在读取模型目录和运行设备";try{await ensureService();renderModel(await request("/models/status"));}catch(error){model_stage.textContent=`检查失败：${error.message}`;}finally{check_model.disabled=false;}}
 function renderCuda(data){
   cuda_stage.textContent=data.stage+(data.component?` · ${data.component}`:"");
   cuda_percent.textContent=`${data.progress||0}%`;
@@ -28,7 +29,7 @@ function renderCuda(data){
   install_cuda.textContent=data.valid?"GPU 已配置":data.state==="running"?"正在配置…":"一键配置 GPU";
   if(data.state==="running"){clearTimeout(cudaPoll);cudaPoll=setTimeout(checkCuda,700);}
 }
-async function checkCuda(){try{renderCuda(await request("/cuda/status"));}catch(error){cuda_stage.textContent=`检查失败：${error.message}`;}}
+async function checkCuda(){check_cuda.disabled=true;cuda_stage.textContent="正在检查 GPU 环境…";cuda_detail.textContent="正在检查显卡、cuBLAS 与 cuDNN";try{await ensureService();renderCuda(await request("/cuda/status"));}catch(error){cuda_stage.textContent=`检查失败：${error.message}`;}finally{check_cuda.disabled=false;}}
 
 ensureService().then(()=>request("/config")).then(async data=>{
   fields.forEach(id=>byId(id).value=data[id]??"");
@@ -63,6 +64,7 @@ form.onsubmit=async event=>{
     message.textContent="已保存并应用";
     if(saved.api_key_configured){api_key.value=KEY_PLACEHOLDER;api_key.dataset.configured="true";}
     checkModel();
+    checkCuda();
   }catch(error){message.textContent=`保存失败：${error.message}`;}
 };
 // Moon End

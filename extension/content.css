@@ -1,18 +1,21 @@
 #ytba-root { position: fixed; top: 64px; right: 0; width: var(--ytba-panel-width,390px); height: calc(100vh - 64px); z-index: 2147483640; background: rgba(17,19,24,var(--ytba-panel-opacity,.94)); backdrop-filter:blur(14px); color: #f2f4f8; border-left: 1px solid #333842; box-shadow: -8px 0 24px #0008; font: 14px/1.5 Arial, sans-serif; display: flex; flex-direction: column; transform: translate3d(0,0,0); transition: transform .34s cubic-bezier(.22,.8,.25,1), box-shadow .34s ease; will-change: transform; }
 /* Moon Begin: slide the fixed-width panel and page content on one animation track. */
-#ytba-root.ytba-collapsed { width:44px; height:136px; transform:none; background:transparent !important; border-color:transparent; box-shadow:none !important; pointer-events:none; }
+#ytba-root.ytba-collapsed { top:var(--ytba-launcher-top,180px) !important;width:48px;height:52px;transform:none;background:transparent !important;border-color:transparent;box-shadow:none !important;pointer-events:none; }
 body.ytba-panel-left #ytba-root { left:0; right:auto; border-left:0; border-right:1px solid #333842; box-shadow:8px 0 24px #0008; }
 body.ytba-panel-left #ytba-root.ytba-collapsed { transform:none; border-right-color:transparent; }
 #ytba-root > * { transition: opacity .18s ease .08s; }
 #ytba-root.ytba-collapsed > *:not(.ytba-edge-handle) { opacity: 0; pointer-events: none; transition-delay: 0s; }
 .ytba-edge-handle { display: none; }
-#ytba-root.ytba-collapsed .ytba-edge-handle { position: absolute; left: 0; top: 48px; display: flex; width: 44px; height: 88px; padding: 0; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #fff; background: linear-gradient(155deg,#6d5cff 0%,#3478f6 48%,#1e63d7 100%); border: 1px solid rgba(190,211,255,.42); border-right: 0; border-radius: 14px 0 0 14px; box-shadow: -5px 8px 22px rgba(31,76,180,.3), inset 0 1px 0 rgba(255,255,255,.2); opacity: 1; pointer-events: auto; cursor: pointer; transition: transform .2s ease, filter .2s ease, box-shadow .2s ease; }
-#ytba-root.ytba-collapsed .ytba-edge-handle:hover { transform: translateX(-4px); filter: brightness(1.08); box-shadow: -8px 9px 26px rgba(31,76,180,.4), inset 0 1px 0 rgba(255,255,255,.25); }
-body.ytba-panel-left #ytba-root.ytba-collapsed .ytba-edge-handle { left:0; right:auto; border-right:1px solid rgba(190,211,255,.42); border-left:0; border-radius:0 14px 14px 0; box-shadow:5px 8px 22px rgba(31,76,180,.3),inset 0 1px 0 rgba(255,255,255,.2); }
-body.ytba-panel-left #ytba-root.ytba-collapsed .ytba-edge-handle:hover { transform:translateX(4px); box-shadow:8px 9px 26px rgba(31,76,180,.4),inset 0 1px 0 rgba(255,255,255,.25); }
-.ytba-edge-mark { display: grid; width: 30px; height: 30px; place-items: center; font-size: 18px; line-height: 1; font-weight: 750; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.2); border-radius: 9px; text-shadow: 0 1px 5px rgba(15,34,90,.5); }
-.ytba-edge-handle i { font: 22px/16px Arial,sans-serif; opacity: .9; }
+#ytba-root.ytba-collapsed .ytba-edge-handle { position:absolute;inset:0;display:grid;width:48px;height:48px;padding:0;place-items:center;color:#fff;background:linear-gradient(145deg,#655cf5,#347ce8);border:1px solid rgba(196,214,255,.48);border-right:0;border-radius:14px 0 0 14px;box-shadow:-5px 8px 22px rgba(31,76,180,.3),inset 0 1px rgba(255,255,255,.2);font:750 18px/1 Arial,sans-serif;opacity:1;pointer-events:auto;cursor:grab;touch-action:none;transition:filter .18s ease,box-shadow .18s ease; }
+#ytba-root.ytba-collapsed .ytba-edge-handle:hover { filter:brightness(1.08);box-shadow:-7px 9px 25px rgba(31,76,180,.4),inset 0 1px rgba(255,255,255,.25); }
+#ytba-root.ytba-collapsed .ytba-edge-handle.dragging { cursor:grabbing; }
+body.ytba-panel-left #ytba-root.ytba-collapsed .ytba-edge-handle { border-right:1px solid rgba(196,214,255,.48);border-left:0;border-radius:0 14px 14px 0;box-shadow:5px 8px 22px rgba(31,76,180,.3),inset 0 1px rgba(255,255,255,.2); }
 /* Moon End */
+#ytba-launcher { position:fixed;z-index:2147483641;top:var(--ytba-launcher-top,180px);display:grid;width:48px;height:48px;padding:0;place-items:center;color:#fff;background:linear-gradient(145deg,#655cf5,#347ce8);border:1px solid rgba(196,214,255,.48);box-shadow:0 9px 25px rgba(31,76,180,.32),inset 0 1px rgba(255,255,255,.2);font:750 18px/1 Arial,sans-serif;cursor:grab;touch-action:none;transition:filter .18s ease,box-shadow .18s ease; }
+body.ytba-launcher-right #ytba-launcher { right:0;border-right:0;border-radius:14px 0 0 14px; }
+body.ytba-launcher-left #ytba-launcher { left:0;border-left:0;border-radius:0 14px 14px 0; }
+#ytba-launcher:hover { filter:brightness(1.08);box-shadow:0 11px 29px rgba(31,76,180,.42),inset 0 1px rgba(255,255,255,.25); }
+#ytba-launcher.dragging { cursor:grabbing;filter:brightness(1.12); }
 #ytba-root * { box-sizing: border-box; }
 .ytba-resize-handle { position:absolute; z-index:4; top:0; bottom:0; left:-5px; width:10px; cursor:ew-resize; touch-action:none; }
 .ytba-resize-handle::after { content:""; position:absolute; top:42%; bottom:42%; left:4px; width:2px; border-radius:2px; background:#7198ef; opacity:0; transition:opacity .18s ease; }
