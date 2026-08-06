@@ -22,7 +22,12 @@ def load_config() -> ServiceConfig:
     ensure_dirs()
     if not CONFIG_PATH.exists():
         return ServiceConfig()
-    return ServiceConfig.model_validate_json(CONFIG_PATH.read_text(encoding="utf-8"))
+    config = ServiceConfig.model_validate_json(CONFIG_PATH.read_text(encoding="utf-8"))
+    # Moon Add: legacy English-only Whisper selections transparently become
+    # multilingual models so Japanese audio can be detected without reconfiguration.
+    if config.whisper_model.endswith(".en"):
+        config.whisper_model = config.whisper_model.removesuffix(".en")
+    return config
 
 
 def save_config(config: ServiceConfig) -> None:
@@ -30,4 +35,3 @@ def save_config(config: ServiceConfig) -> None:
     tmp = CONFIG_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(config.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(CONFIG_PATH)
-

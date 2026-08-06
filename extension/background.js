@@ -38,7 +38,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.notifications.create({
       type: "basic",
       iconUrl: "icon128.png",
-      title: "YouTube 双语字幕助手",
+      title: "视频 AI 双语字幕助手",
       message: message.message
     });
     sendResponse({ ok: true });
@@ -46,7 +46,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "download-markdown") {
     chrome.downloads.download({
       url: `data:text/markdown;charset=utf-8,${encodeURIComponent(message.content)}`,
-      filename: `${message.filename || "youtube-summary"}.md`,
+      filename: `${message.filename || "video-summary"}.md`,
       saveAs: true
     });
     sendResponse({ ok: true });

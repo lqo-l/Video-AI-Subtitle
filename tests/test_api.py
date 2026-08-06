@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from service.app import config
 from service.app import main
 from service.app.main import app
+from service.app.models import JobView
 
 
 def test_health_and_config_redaction(tmp_path, monkeypatch):
@@ -62,6 +63,19 @@ def test_start_job_runs_on_event_loop(monkeypatch):
     )
     assert response.status_code == 200
     assert captured["loop_was_running"] is True
+
+
+def test_start_job_accepts_bilibili(monkeypatch):
+    # Moon Add
+    monkeypatch.setattr(main, "create_job", lambda url: JobView(
+        id="bilibili-job", state="queued", stage="等待处理", progress=0,
+        platform="bilibili",
+    ))
+    response = TestClient(app).post(
+        "/jobs", json={"url": "https://www.bilibili.com/video/BV1GJ411x7h7"}
+    )
+    assert response.status_code == 200
+    assert response.json()["platform"] == "bilibili"
 
 
 def test_clear_cache_preserves_config(tmp_path, monkeypatch):

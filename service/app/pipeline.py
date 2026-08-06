@@ -20,6 +20,7 @@ from .models import JobView, ProcessedVideo, Segment
 
 JOBS: dict[str, JobView] = {}
 CACHE_SCHEMA_VERSION = 2  # Moon Add: invalidate pre-normalization subtitle caches.
+SUPPORTED_LANGUAGES = ("en", "ja", "zh")
 
 
 def _write_json_atomic(path: Path, data: dict) -> None:
@@ -35,9 +36,28 @@ def _write_json_atomic(path: Path, data: dict) -> None:
 
 def video_id_from_url(url: str) -> str:
     parsed = urlparse(url)
+    if parsed.hostname and parsed.hostname.endswith("bilibili.com"):
+        match = re.search(r"/(BV[0-9A-Za-z]+|av\d+|(?:ep|ss)\d+)", parsed.path, re.IGNORECASE)
+        return match.group(1) if match else ""
     if parsed.hostname == "youtu.be":
         return parsed.path.strip("/")
     return parse_qs(parsed.query).get("v", [""])[0]
+
+
+def platform_from_url(url: str) -> str:
+    hostname = (urlparse(url).hostname or "").lower()
+    return "bilibili" if hostname.endswith("bilibili.com") else "youtube"
+
+
+def cache_key_from_url(url: str) -> str:
+    """Namespace cache IDs by site and Bilibili part number."""
+    # Moon Add
+    platform = platform_from_url(url)
+    video_id = video_id_from_url(url)
+    if platform == "bilibili":
+        page = parse_qs(urlparse(url).query).get("p", ["1"])[0]
+        return f"bilibili_{video_id}_p{page}"
+    return video_id  # Moon Modified: preserve existing YouTube cache filenames.
 
 
 def _clean_caption(text: str) -> str:
@@ -64,8 +84,10 @@ def _normalize_rolling_captions(captions: list[Segment]) -> list[Segment]:
     """Collapse rolling VTT cues, then create readable sentence-sized timed segments."""
     # Moon Begin
     words: list[tuple[str, float, float]] = []
+    language = captions[0].source_language if captions else "en"
+    cjk = language in ("ja", "zh")
     for caption in captions:
-        current = caption.en.split()
+        current = [char for char in caption.en if not char.isspace()] if cjk else caption.en.split()
         if not current:
             continue
         previous = [item[0] for item in words]
@@ -87,28 +109,73 @@ def _normalize_rolling_captions(captions: list[Segment]) -> list[Segment]:
     chunk: list[tuple[str, float, float]] = []
     for index, word in enumerate(words):
         chunk.append(word)
-        text = " ".join(item[0] for item in chunk)
-        sentence_end = bool(re.search(r"[.!?][\"')\]]?$", word[0]))
+        separator = "" if cjk else " "
+        text = separator.join(item[0] for item in chunk)
+        sentence_end = bool(re.search(
+            r"[。！？!?][」』）】\"')\]]?$" if cjk else r"[.!?][\"')\]]?$",
+            word[0],
+        ))
         next_gap = words[index + 1][1] - word[2] if index + 1 < len(words) else 0
-        should_flush = sentence_end or len(chunk) >= 18 or len(text) >= 110 or next_gap >= 1.1
+        max_units = 36 if cjk else 18
+        max_chars = 54 if cjk else 110
+        should_flush = sentence_end or len(chunk) >= max_units or len(text) >= max_chars or next_gap >= 1.1
         if should_flush:
-            result.append(Segment(start=chunk[0][1], end=chunk[-1][2], en=text))
+            result.append(Segment(
+                start=chunk[0][1], end=chunk[-1][2], en=text,
+                source_language=language,
+            ))
             chunk = []
     if chunk:
-        result.append(Segment(start=chunk[0][1], end=chunk[-1][2], en=" ".join(x[0] for x in chunk)))
+        result.append(Segment(
+            start=chunk[0][1], end=chunk[-1][2],
+            en=("" if cjk else " ").join(x[0] for x in chunk), source_language=language,
+        ))
     return result
     # Moon End
 
 
-def _read_vtt(path: Path) -> list[Segment]:
+def _read_subtitle(path: Path, language: str, rolling: bool = False) -> list[Segment]:
+    """Read VTT/SRT captions while preserving their declared source language."""
+    # Moon Begin
     raw: list[Segment] = []
-    for caption in webvtt.read(str(path)):
+    captions = webvtt.from_srt(str(path)) if path.suffix.lower() == ".srt" else webvtt.read(str(path))
+    for caption in captions:
         text = _clean_caption(caption.text)
         if not text or (raw and raw[-1].en == text):
             continue
-        raw.append(Segment(start=_seconds(caption.start), end=_seconds(caption.end), en=text))
-    # Moon Modified: YouTube auto captions are rolling windows, not final subtitle lines.
-    return _normalize_rolling_captions(raw)
+        raw.append(Segment(
+            start=_seconds(caption.start), end=_seconds(caption.end), en=text,
+            source_language=language,
+        ))
+    return _normalize_rolling_captions(raw) if rolling else raw
+    # Moon End
+
+
+def _caption_language(key: str) -> str | None:
+    normalized = key.lower().replace("_", "-")
+    if normalized == "danmaku":
+        return None
+    if normalized.startswith(("en", "ai-en")):
+        return "en"
+    if normalized.startswith(("ja", "jp", "ai-ja", "ai-jp")):
+        return "ja"
+    if normalized.startswith(("zh", "cn", "ai-zh", "ai-cn")):
+        return "zh"
+    return None
+
+
+def _select_caption(captions: dict) -> tuple[str, str] | None:
+    """Prefer translatable English/Japanese captions, then native Chinese."""
+    # Moon Add
+    candidates = []
+    for key in captions:
+        language = _caption_language(key)
+        if language:
+            candidates.append((SUPPORTED_LANGUAGES.index(language), key, language))
+    if not candidates:
+        return None
+    _, key, language = min(candidates)
+    return key, language
 
 
 def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | None]:
@@ -116,21 +183,26 @@ def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | No
     with yt_dlp.YoutubeDL(common) as ydl:
         info = ydl.extract_info(url, download=False)
     captions = {**(info.get("automatic_captions", {}) or {}), **(info.get("subtitles", {}) or {})}
-    english = next((key for key in ("en", "en-US", "en-GB") if key in captions), None)
-    if english:
+    selected = _select_caption(captions)
+    if selected:
+        subtitle_key, language = selected
         options = common | {
             "skip_download": True,
             "writesubtitles": True,
             "writeautomaticsub": True,
-            "subtitleslangs": [english],
-            "subtitlesformat": "vtt",
+            "subtitleslangs": [subtitle_key],
+            "subtitlesformat": "vtt/srt/best",
             "outtmpl": str(directory / "%(id)s.%(ext)s"),
         }
         with yt_dlp.YoutubeDL(options) as ydl:
             ydl.download([url])
-        vtt = next(directory.glob("*.vtt"), None)
-        if vtt:
-            return info, _read_vtt(vtt), None
+        subtitle = next((path for path in directory.iterdir() if path.suffix.lower() in (".vtt", ".srt")), None)
+        if subtitle:
+            platform = platform_from_url(url)
+            info["_ytba_language"] = language
+            info["_ytba_source"] = f"{platform}_subtitles"
+            rolling = platform == "youtube" and language in ("en", "ja")
+            return info, _read_subtitle(subtitle, language, rolling=rolling), None
 
     options = common | {
         "format": "bestaudio/best",
@@ -145,9 +217,10 @@ def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | No
     return info, [], audio
 
 
-def _transcribe(audio: Path, model_name: str, device_setting: str) -> list[Segment]:
+def _transcribe(audio: Path, model_name: str, device_setting: str) -> tuple[list[Segment], str]:
     import ctranslate2
 
+    model_name = model_name.removesuffix(".en")  # Moon Add: require multilingual weights.
     device = device_setting
     if device == "auto":
         device = "cuda" if ctranslate2.get_cuda_device_count() else "cpu"
@@ -158,29 +231,41 @@ def _transcribe(audio: Path, model_name: str, device_setting: str) -> list[Segme
         if device_setting != "auto" or device == "cpu":
             raise
         model = WhisperModel(model_name, device="cpu", compute_type="int8")
-    items, _ = model.transcribe(str(audio), language="en", vad_filter=True, beam_size=5)
-    return [Segment(start=x.start, end=x.end, en=x.text.strip()) for x in items if x.text.strip()]
+    items, info = model.transcribe(str(audio), language=None, vad_filter=True, beam_size=5)
+    language = info.language if info.language in SUPPORTED_LANGUAGES else ""
+    if not language:
+        raise RuntimeError(f"仅支持英文、日文或中文语音，检测到：{info.language or '未知'}")
+    return [
+        Segment(start=x.start, end=x.end, en=x.text.strip(), source_language=language)
+        for x in items if x.text.strip()
+    ], language
 
 
 async def process_job(job_id: str, url: str) -> None:
     job = JOBS[job_id]
     video_id = video_id_from_url(url)
-    cache_path = CACHE_DIR / f"{video_id}.v{CACHE_SCHEMA_VERSION}.json"
+    platform = platform_from_url(url)
+    job.platform = platform
+    cache_key = cache_key_from_url(url)
+    cache_path = CACHE_DIR / f"{cache_key}.v{CACHE_SCHEMA_VERSION}.json"
     if cache_path.exists():
         job.state, job.stage, job.progress = "completed", "已从缓存加载", 100
         job.result = ProcessedVideo.model_validate_json(cache_path.read_text(encoding="utf-8"))
         job.preview_segments = job.result.segments
+        job.platform = job.result.platform
+        job.source_language = job.result.source_language
         job.translated_segments = len(job.result.segments)
         job.total_segments = len(job.result.segments)
         job.summary_partial = job.result.summary
         job.summary_state = "completed"
         return
 
-    partial_path = CACHE_DIR / f"{video_id}.partial.v{CACHE_SCHEMA_VERSION}.json"
+    partial_path = CACHE_DIR / f"{cache_key}.partial.v{CACHE_SCHEMA_VERSION}.json"
     segments: list[Segment] = []
     title: str = video_id
     duration: float | None = None
     source: str = ""
+    source_language: str = "en"
     resume: bool = False
     saved_summary_partial: str = ""
     saved_summary: str = ""
@@ -197,6 +282,10 @@ async def process_job(job_id: str, url: str) -> None:
             title = data.get("title", video_id)
             duration = data.get("duration")
             source = data.get("source", "resume")
+            platform = data.get("platform", platform)
+            source_language = data.get(
+                "source_language", segments[0].source_language if segments else "en"
+            )
             saved_summary_partial = data.get("summary_partial", "")
             saved_summary = data.get("summary", "")
             saved_key_points = [str(x) for x in data.get("key_points", [])]
@@ -215,20 +304,27 @@ async def process_job(job_id: str, url: str) -> None:
         try:
             job.state, job.stage, job.progress = "running", "读取视频信息与字幕", 8
             info, extracted, audio = await asyncio.to_thread(_download, url, temp)
-            source = "youtube_subtitles"
+            source = info.get("_ytba_source", f"{platform}_subtitles")
+            source_language = info.get("_ytba_language", "en")
             if not extracted:
-                job.stage, job.progress = "使用本机 Whisper 转写音频", 25
+                job.stage, job.progress = "使用本机 Whisper 自动识别英/日语音", 25
                 config = load_config()
-                extracted = await asyncio.to_thread(_transcribe, audio, config.whisper_model, config.device)
+                extracted, source_language = await asyncio.to_thread(
+                    _transcribe, audio, config.whisper_model, config.device
+                )
                 source = "whisper"
             if not extracted:
-                raise RuntimeError("未识别到有效英文语音")
+                raise RuntimeError("未识别到有效字幕或语音")
+            if source_language == "zh":
+                for segment in extracted:
+                    segment.zh = segment.en
             segments = extracted
             title = info.get("title", video_id)
             duration = info.get("duration")
             # Save partial state for crash recovery
             _write_json_atomic(partial_path, {
                 "title": title, "duration": duration, "source": source,
+                "platform": platform, "source_language": source_language,
                 "segments": [s.model_dump() for s in segments],
                 "summary_partial": "", "summary_state": "idle",
                 "summary": "", "key_points": [],
@@ -240,6 +336,8 @@ async def process_job(job_id: str, url: str) -> None:
     # Moon Add: resumed jobs bypass extraction, so explicitly leave the queued state.
     job.state = "running"
     job.preview_segments = segments
+    job.platform = platform
+    job.source_language = source_language
     job.total_segments = len(segments)
     job.stage, job.progress = f"翻译中文字幕 0 / {len(segments)}", 55
     job.translated_segments = sum(1 for segment in segments if segment.zh)
@@ -257,6 +355,8 @@ async def process_job(job_id: str, url: str) -> None:
             "title": title,
             "duration": duration,
             "source": source,
+            "platform": platform,
+            "source_language": source_language,
             "segments": [segment.model_dump() for segment in segments],
             "summary_partial": job.summary_partial,
             "summary_state": summary_state or job.summary_state,
@@ -277,7 +377,7 @@ async def process_job(job_id: str, url: str) -> None:
     config = load_config()
     client = LlmClient(config)
     try:
-        # Moon Begin: both coroutines receive the extracted English transcript and
+        # Moon Begin: both coroutines receive the extracted original transcript and
         # start before either is awaited. Their state and failures remain independent.
         job.stage = f"翻译中文字幕 0 / {len(segments)}"
         if not summary_already_completed:
@@ -334,6 +434,8 @@ async def process_job(job_id: str, url: str) -> None:
         url=url,
         duration=duration,
         source=source,
+        platform=platform,
+        source_language=source_language,
         segments=segments,
         summary=summary,
         key_points=key_points,

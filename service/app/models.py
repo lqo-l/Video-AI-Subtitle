@@ -10,7 +10,7 @@ class ServiceConfig(BaseModel):
     api_key: str = ""
     translation_model: str = "deepseek-v4-flash"
     summary_model: str = "deepseek-chat"
-    whisper_model: str = "small.en"
+    whisper_model: str = "small"
     device: Literal["auto", "cuda", "cpu"] = "auto"
 
 
@@ -32,6 +32,8 @@ class Segment(BaseModel):
     end: float = Field(ge=0)
     en: str
     zh: str = ""
+    # Moon Add: `en` remains the cache-compatible original-text field.
+    source_language: Literal["en", "ja", "zh"] = "en"
 
 
 class ProcessedVideo(BaseModel):
@@ -39,7 +41,9 @@ class ProcessedVideo(BaseModel):
     title: str
     url: str
     duration: float | None = None
-    source: Literal["youtube_subtitles", "whisper"]
+    source: Literal["youtube_subtitles", "bilibili_subtitles", "whisper"]
+    platform: Literal["youtube", "bilibili"] = "youtube"
+    source_language: Literal["en", "ja", "zh"] = "en"
     segments: list[Segment]
     summary: str
     key_points: list[str]
@@ -60,3 +64,5 @@ class JobView(BaseModel):
     # Moon Add: summary has an independent lifecycle from translation.
     summary_state: Literal["idle", "running", "completed", "failed"] = "idle"
     summary_error: str | None = None
+    platform: Literal["youtube", "bilibili"] = "youtube"
+    source_language: Literal["en", "ja", "zh"] = "en"

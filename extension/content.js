@@ -17,6 +17,7 @@
   let layoutAnimationFrame = 0;
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
+  const site = location.hostname.includes("bilibili.com") ? "bilibili" : "youtube";
 
   const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
   const formatTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -29,6 +30,24 @@
 
   function video() { return document.querySelector("video"); }
 
+  function playerContainer() {
+    const player=video();
+    if(!player)return null;
+    return site==="bilibili"
+      ? player.closest(".bpx-player-container,.bilibili-player,.bilibili-player-video") || player.parentElement
+      : player.closest(".html5-video-player") || player.parentElement;
+  }
+
+  function isVideoPage() {
+    return site==="bilibili"
+      ? location.pathname.startsWith("/video/") || location.pathname.startsWith("/bangumi/play/")
+      : location.pathname==="/watch";
+  }
+
+  function sourceLanguageLabel() {
+    return ({en:"英文",ja:"日文",zh:"中文"})[result?.source_language] || "原文";
+  }
+
   async function safeSendMessage(message) {
     let lastError = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -40,7 +59,7 @@
       }
     }
     console.error("[YTBA] sendMessage failed after 3 attempts:", lastError);
-    throw new Error("扩展通信失败，请刷新 YouTube 页面后重试 (Ctrl+Shift+R)");
+    throw new Error("扩展通信失败，请刷新当前视频页面后重试 (Ctrl+Shift+R)");
   }
 
   async function ensureService() {
@@ -57,7 +76,7 @@
     if (document.querySelector("#ytba-prompt") || document.querySelector("#ytba-root")) return;
     const box = document.createElement("div");
     box.id = "ytba-prompt";
-    box.innerHTML = `<strong>生成中英双语字幕？</strong><div style="margin-top:6px;color:#bbc2ce">将先完整处理视频，完成后提醒你手动播放。</div><div class="actions"><button class="ytba-button secondary" data-no>暂不</button><button class="ytba-button" data-yes>开始处理</button></div>`;
+    box.innerHTML = `<strong>生成原文与中文字幕？</strong><div style="margin-top:6px;color:#bbc2ce">支持英文/日文，处理完成后提醒你手动播放。</div><div class="actions"><button class="ytba-button secondary" data-no>暂不</button><button class="ytba-button" data-yes>开始处理</button></div>`;
     box.querySelector("[data-no]").onclick = () => box.remove();
     box.querySelector("[data-yes]").onclick = () => { box.remove(); start(); };
     document.body.appendChild(box);
@@ -68,7 +87,7 @@
     if (root) return root;
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手" aria-label="展开字幕助手"><span class="ytba-edge-mark">译</span><i aria-hidden="true">‹</i></button><div class="ytba-head"><strong>双语字幕助手</strong><button class="ytba-button secondary" data-retry title="从上次缓存继续">↻ 重试</button><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary ytba-collapse" data-close title="收缩侧栏">&gt;</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">中英双语</option><option value="zh">仅中文</option><option value="en">仅英文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手" aria-label="展开字幕助手"><span class="ytba-edge-mark">译</span><i aria-hidden="true">‹</i></button><div class="ytba-head"><strong>AI 双语字幕助手</strong><button class="ytba-button secondary" data-retry title="从上次缓存继续">↻ 重试</button><button class="ytba-button secondary" data-export disabled>导出 MD</button><button class="ytba-button secondary ytba-collapse" data-close title="收缩侧栏">&gt;</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div></div><div class="ytba-controls"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select></label><button class="ytba-control" data-control="smaller">字号−</button><button class="ytba-control" data-control="larger">字号＋</button><button class="ytba-control" data-control="up">上移</button><button class="ytba-control" data-control="down">下移</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-control="reset">恢复默认</button></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
     // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
     root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
     root.querySelector("[data-expand]").onclick = event => { event.stopPropagation(); setPanelCollapsed(false); };
@@ -77,6 +96,7 @@
     bindSubtitleControls(root);
     root.querySelector("[data-export]").onclick = () => safeSendMessage({type:"download-markdown", content:buildMarkdown(), filename:safeName(result.title)});
     document.body.appendChild(root);
+    document.body.classList.add(`ytba-site-${site}`);
     document.body.classList.add("ytba-panel-open");
     setPanelCollapsed(panelCollapsed);
     refreshTabStates();
@@ -155,6 +175,10 @@
     visible.textContent=subtitlePrefs.visible?"隐藏字幕":"显示字幕";
     visible.classList.toggle("active",subtitlePrefs.visible);
     root.querySelector('[data-control="language"]').value=subtitlePrefs.language;
+    const languageSelect=root.querySelector('[data-control="language"]');
+    if(languageSelect.value==="")languageSelect.value=subtitlePrefs.language==="en"?"source":"bilingual";
+    languageSelect.querySelector('option[value="bilingual"]').textContent=`${sourceLanguageLabel()} + 中文`;
+    languageSelect.querySelector('option[value="source"]').textContent=`仅${sourceLanguageLabel()}`;
     root.querySelector('[data-control="background"]').classList.toggle("active",subtitlePrefs.background);
   }
 
@@ -168,7 +192,7 @@
 
   function updateResponsiveSubtitleScale() {
     if(!overlay)return;
-    const player=video()?.closest(".html5-video-player");
+    const player=playerContainer();
     if(!player)return;
     // Moon Add: 960px player width is the neutral size; clamp for phone-sized
     // windows and ultrawide/fullscreen displays to keep captions comfortable.
@@ -181,8 +205,11 @@
   function buildMarkdown() {
     // Moon Add: export remains available after the temporary local service exits.
     const lines=[`# ${result.title}`,"",`来源：${location.href}`,"","## 摘要","",result.summary,"","## 关键点",""];
-    lines.push(...result.key_points.map(point=>`- ${point}`),"","## 中英字幕","");
-    result.segments.forEach(item=>lines.push(`### ${formatTime(item.start)}`,"",item.en,"",item.zh,""));
+    lines.push(...result.key_points.map(point=>`- ${point}`),"",`## ${sourceLanguageLabel()}与中文字幕`,"");
+    result.segments.forEach(item=>{
+      lines.push(`### ${formatTime(item.start)}`,"",item.en,"");
+      if(result.source_language!=="zh")lines.push(item.zh,"");
+    });
     return lines.join("\n");
   }
 
@@ -263,7 +290,7 @@
       // Moon Begin: render each completed translation batch immediately.
       if (job.preview_segments?.length && job.translated_segments !== renderedTranslationCount) {
         renderedTranslationCount = job.translated_segments;
-        result = {segments: job.preview_segments, summary: "", key_points: []};
+        result = {segments: job.preview_segments, summary: "", key_points: [], source_language:job.source_language, platform:job.platform};
         if (job.translated_segments > 0) {
           setupPlayback();
           updateStatus(`已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`, job.progress);
@@ -313,7 +340,7 @@
     }
     // Moon Modified: html5-video-container can have zero height on YouTube.
     // Anchor to the stable player box so bottom positioning stays inside the video.
-    const container = player.closest(".html5-video-player") || player.parentElement;
+    const container = playerContainer();
     const existingOverlay = document.querySelector("#ytba-overlay");
     if (existingOverlay && existingOverlay.parentElement !== container) existingOverlay.remove();
     if (container && !document.querySelector("#ytba-overlay")) {
@@ -324,6 +351,7 @@
       overlay = document.querySelector("#ytba-overlay");
     }
     applySubtitlePrefs();
+    refreshSubtitleControls();
     updateResponsiveSubtitleScale();
     if(!playerResizeObserver){
       playerResizeObserver=new ResizeObserver(updateResponsiveSubtitleScale);
@@ -342,7 +370,7 @@
     if (tab === "summary") {
       if (job?.state !== "completed" && renderedSummary) {
         const streaming=job.summary_state === "running";
-        body.innerHTML = `<div class="ytba-stream-heading">${streaming?'<span class="ytba-live-dot"></span> AI 正在提炼英文内容':'✓ 摘要已生成，字幕仍在翻译'}</div><div class="ytba-stream-text">${renderSummaryMarkdown(renderedSummary)}${streaming?'<span class="ytba-stream-caret"></span>':''}</div>`;
+        body.innerHTML = `<div class="ytba-stream-heading">${streaming?'<span class="ytba-live-dot"></span> AI 正在提炼原文内容':'✓ 摘要已生成，字幕仍在翻译'}</div><div class="ytba-stream-text">${renderSummaryMarkdown(renderedSummary)}${streaming?'<span class="ytba-stream-caret"></span>':''}</div>`;
       } else if (job?.summary_state === "failed" && !result.summary) {
         body.innerHTML = `<div class="ytba-summary-error">摘要生成失败：${escapeHtml(job.summary_error || "未知错误")}<br>字幕翻译结果仍可正常使用。</div>`;
       } else {
@@ -356,7 +384,7 @@
       }
       return;
     }
-    body.innerHTML = result.segments.map((x,i)=>`<div class="ytba-segment" data-index="${i}"><div class="ytba-time">${formatTime(x.start)}</div><div class="ytba-en">${escapeHtml(x.en)}</div><div class="ytba-zh">${x.zh ? escapeHtml(x.zh) : '<span style="color:#707784">等待翻译…</span>'}</div></div>`).join("");
+    body.innerHTML = result.segments.map((x,i)=>`<div class="ytba-segment" data-index="${i}"><div class="ytba-time">${formatTime(x.start)}</div><div class="${result.source_language==="zh"?"ytba-zh":"ytba-en"}">${escapeHtml(x.en)}</div>${result.source_language==="zh"?"":`<div class="ytba-zh">${x.zh ? escapeHtml(x.zh) : '<span style="color:#707784">等待翻译…</span>'}</div>`}</div>`).join("");
     body.querySelectorAll(".ytba-segment").forEach(el => el.onclick = () => { const player=video(); player.currentTime=result.segments[Number(el.dataset.index)].start; });
   }
 
@@ -367,8 +395,9 @@
     const item = result.segments[index];
     // Moon Modified: untranslated future segments intentionally render nothing.
     if (!subtitlePrefs.visible || !item?.zh) overlay.innerHTML = "";
+    else if (result.source_language === "zh") overlay.innerHTML = `<div class="zh">${escapeHtml(item.zh)}</div>`;
     else if (subtitlePrefs.language === "zh") overlay.innerHTML = `<div class="zh">${escapeHtml(item.zh)}</div>`;
-    else if (subtitlePrefs.language === "en") overlay.innerHTML = `<div class="en">${escapeHtml(item.en)}</div>`;
+    else if (["source","en"].includes(subtitlePrefs.language)) overlay.innerHTML = `<div class="en">${escapeHtml(item.en)}</div>`;
     else overlay.innerHTML = `<div class="en">${escapeHtml(item.en)}</div><div class="zh">${escapeHtml(item.zh)}</div>`;
     document.querySelectorAll(".ytba-segment.active").forEach(x=>x.classList.remove("active"));
     const active = document.querySelector(`.ytba-segment[data-index="${index}"]`);
@@ -384,14 +413,14 @@
     if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);
     playerResizeObserver?.disconnect(); playerResizeObserver=null; cancelAnimationFrame(layoutAnimationFrame); layoutAnimationFrame=0;
     clearTimeout(pollTimer); job = result = null; renderedTranslationCount = -1; renderedSummary = ""; summaryAutoOpened = false; transcriptComplete = false; summaryComplete = false; activeTab = "transcript"; playbackReady = false; overlay = null;
-    document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-fullscreen"); panelCollapsed=false;
-    if (location.pathname === "/watch") setTimeout(showPrompt, 1800);
+    document.querySelector("#ytba-root")?.remove(); document.querySelector("#ytba-overlay")?.remove(); document.body.classList.remove("ytba-panel-open","ytba-panel-collapsed","ytba-fullscreen","ytba-site-youtube","ytba-site-bilibili"); panelCollapsed=false;
+    if (isVideoPage()) setTimeout(showPrompt, 1800);
   }
 
   chrome.runtime.onMessage.addListener(message => { if (message.type === "start") start(); if (message.type === "open") ensurePanel(); });
   document.addEventListener("fullscreenchange",updateFullscreenLayout);
   updateFullscreenLayout();
-  chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};applySubtitlePrefs();refreshSubtitleControls();});
+  chrome.storage.local.get({subtitlePrefs:defaultSubtitlePrefs}).then(data=>{subtitlePrefs={...defaultSubtitlePrefs,...data.subtitlePrefs};if(subtitlePrefs.language==="en")subtitlePrefs.language="source";applySubtitlePrefs();refreshSubtitleControls();});
   setInterval(watchNavigation, 1000);
   watchNavigation();
 })();

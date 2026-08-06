@@ -123,6 +123,8 @@ class LlmClient:
     async def translate(self, segments: list[Segment], progress=None) -> None:
         batch_size = 20  # Moon Modified: expose the first playable translated section sooner.
         context_size = 5  # Moon Add: retain terminology and references across batch boundaries.
+        source_language = next((item.source_language for item in segments if item.en), "en")
+        language_name = {"en": "英文", "ja": "日文", "zh": "中文"}.get(source_language, "原文")
         for offset in range(0, len(segments), batch_size):
             batch = segments[offset : offset + batch_size]
             if all(item.zh for item in batch):
@@ -144,7 +146,7 @@ class LlmClient:
             payload = {"context_only": context, "translate": current}
             text = await self._request(
                 self.config.translation_model,
-                "将英文视频字幕翻译成自然、准确、简洁的简体中文。context_only 是前文中英对照，只用于理解指代、术语和语气，禁止输出或改写。仅翻译 translate 数组。只返回 JSON 数组，每项格式为 {id, zh}；ID 必须来自 translate，不得遗漏、增加或重复，不得添加 Markdown。",
+                f"将{language_name}视频字幕翻译成自然、准确、简洁的简体中文。context_only 是前文原文与中文对照，只用于理解指代、术语和语气，禁止输出或改写。仅翻译 translate 数组。只返回 JSON 数组，每项格式为 {{id, zh}}；ID 必须来自 translate，不得遗漏、增加或重复，不得添加 Markdown。",
                 json.dumps(payload, ensure_ascii=False),
             )
             # Moon End
@@ -164,7 +166,7 @@ class LlmClient:
                 retry_payload = {"context_only": context, "translate": retry_ids}
                 retry_text = await self._request(
                     self.config.translation_model,
-                    "翻译以下英文句子为简体中文。只返回 JSON 数组，每项格式为 {id, zh}，不得添加 Markdown。",
+                    f"翻译以下{language_name}句子为简体中文。只返回 JSON 数组，每项格式为 {{id, zh}}，不得添加 Markdown。",
                     json.dumps(retry_payload, ensure_ascii=False),
                 )
                 retry_match = re.search(r"\[[\s\S]*\]", retry_text)
@@ -192,7 +194,7 @@ class LlmClient:
         lines = []
         for s in segments:
             ts = f"[{s.start:.0f}s]"
-            # Moon Modified: summarization starts from the stable extracted English text.
+            # Moon Modified: summarization starts from the stable extracted original text.
             lines.append(f"{ts} {s.en}")
         transcript = "\n".join(lines)
         json_prompt = "总结视频内容。只返回 JSON 对象：summary 为 2-4 段中文 Markdown 摘要，key_points 为 5-12 条中文要点字符串。不得添加代码围栏。"
@@ -200,7 +202,7 @@ class LlmClient:
         if on_stream:
             # Moon Begin: stream readable Markdown instead of incomplete JSON fragments.
             stream_prompt = (
-                "根据英文视频字幕生成简体中文内容提炼。严格使用以下 Markdown 结构：\n"
+                "根据视频原文字幕生成简体中文内容提炼。严格使用以下 Markdown 结构：\n"
                 "## 内容摘要\n2-4 段连贯摘要\n\n## 关键点\n- 5-12 条要点\n"
                 "不要输出代码围栏、JSON 或额外前言。"
             )

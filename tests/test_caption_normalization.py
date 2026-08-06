@@ -21,3 +21,20 @@ def test_rolling_captions_remove_overlapping_words():
     assert all(item.start < item.end for item in normalized)
     assert all(left.end <= right.end for left, right in zip(normalized, normalized[1:]))
     # Moon End
+
+
+def test_japanese_rolling_captions_remove_overlapping_characters():
+    # Moon Begin
+    raw = [
+        Segment(start=0, end=2, en="今日は良い天気", source_language="ja"),
+        Segment(start=1, end=3, en="今日は良い天気ですね。", source_language="ja"),
+        Segment(start=3, end=5, en="ですね。散歩に行きましょう！", source_language="ja"),
+    ]
+
+    normalized = _normalize_rolling_captions(raw)
+    transcript = "".join(item.en for item in normalized)
+
+    assert transcript == "今日は良い天気ですね。散歩に行きましょう！"
+    assert all(item.source_language == "ja" for item in normalized)
+    assert all(item.start < item.end for item in normalized)
+    # Moon End

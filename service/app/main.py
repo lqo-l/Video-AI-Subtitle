@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,12 +12,15 @@ from .models import JobView, PublicConfig, ServiceConfig, VideoRequest
 from .pipeline import JOBS, create_job
 
 
-app = FastAPI(title="YouTube Bilingual Assistant", version="0.1.0")
+app = FastAPI(title="Video Bilingual Assistant", version="0.2.0")
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://www.youtube.com", "https://youtube.com"],
+    allow_origins=[
+        "https://www.youtube.com", "https://youtube.com",
+        "https://www.bilibili.com", "https://bilibili.com",
+    ],
     allow_origin_regex=r"chrome-extension://.*",
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,8 +63,10 @@ def put_config(config: ServiceConfig):
 
 @app.post("/jobs", response_model=JobView)
 async def start_job(request: VideoRequest):  # Moon Modified: keep task creation on the server event loop.
-    if "youtube.com" not in str(request.url) and "youtu.be" not in str(request.url):
-        raise HTTPException(400, "仅支持 YouTube 视频链接")
+    url = str(request.url)
+    hostname = (urlparse(url).hostname or "").lower()
+    if hostname not in ("youtu.be", "youtube.com", "www.youtube.com", "bilibili.com", "www.bilibili.com"):
+        raise HTTPException(400, "仅支持 YouTube 或 Bilibili 视频链接")
     return create_job(str(request.url))
 
 
@@ -79,8 +85,10 @@ def export_markdown(job_id: str):
     result = job.result
     lines = [f"# {result.title}", "", f"来源：{result.url}", "", "## 摘要", "", result.summary, "", "## 关键点", ""]
     lines.extend(f"- {point}" for point in result.key_points)
-    lines.extend(["", "## 中英字幕", ""])
+    lines.extend(["", "## 原文与中文字幕", ""])
     for item in result.segments:
         minutes, seconds = divmod(int(item.start), 60)
-        lines.extend([f"### {minutes:02d}:{seconds:02d}", "", item.en, "", item.zh, ""])
+        lines.extend([f"### {minutes:02d}:{seconds:02d}", "", item.en, ""])
+        if result.source_language != "zh":
+            lines.extend([item.zh, ""])
     return "\n".join(lines)

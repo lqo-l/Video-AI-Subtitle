@@ -1,8 +1,8 @@
 <div align="center">
 
-# YouTube AI Bilingual Subtitle
+# Video AI Bilingual Subtitle
 
-*Browser-native AI subtitles for YouTube — local Whisper transcription meets OpenAI-compatible translation*
+*English/Japanese subtitles for YouTube and Bilibili — local Whisper transcription meets OpenAI-compatible translation*
 
 [English](README.md) · [简体中文](README_zh.md)
 
@@ -14,29 +14,31 @@
 
 ## Features
 
-- **YouTube captions first** — reuses existing English subtitles whenever available, falls back to local Whisper transcription only when needed.
-- **GPU-accelerated transcription** — CUDA support via `faster-whisper`, with automatic CPU fallback.
+- **YouTube and Bilibili** — works on YouTube videos, Bilibili videos, and Bilibili bangumi pages.
+- **English and Japanese sources** — detects English or Japanese speech and translates both into Simplified Chinese.
+- **Site captions first** — reuses public English/Japanese captions, summarizes native Chinese captions directly, and falls back to local Whisper only when needed.
+- **GPU-accelerated transcription** — multilingual `faster-whisper` supports CUDA with automatic CPU fallback.
 - **Streaming translation** — first batch is playable within seconds; subsequent segments join the timeline as they arrive.
-- **True parallel pipeline** — English summarization starts immediately alongside translation, with a live streamed summary.
+- **True parallel pipeline** — source-language summarization starts immediately alongside translation, with a live streamed summary.
 - **Clear completion states** — transcript and summary tabs independently highlight processing, completion, and failure.
 - **Checkpoint resume** — preserves extracted captions, translated batches, and streamed summaries; **↻ Retry** continues without repeating completed work.
-- **Smooth sidebar** — collapse with `>` while the sidebar and YouTube player transition in sync.
-- **Batch-aware context** — each batch receives 5 preceding translations as reference, preserving terminology and tone across the entire video.
-- **Smart caption cleanup** — detects and collapses YouTube rolling-caption duplicates, re-segments into natural sentences.
+- **Smooth sidebar** — collapse with `>` while the sidebar and video player transition in sync.
+- **Batch-aware context** — each batch receives 5 preceding source/Chinese pairs as reference, preserving terminology and tone.
+- **Smart caption cleanup** — detects and collapses rolling-caption duplicates in English and Japanese, then restores readable segments.
 - **Independent model selection** — translation and summarization use separately configurable models via any OpenAI-compatible API.
 - **One-click Markdown export** — download full transcripts with summaries and key points for offline reference.
-- **Flexible display controls** — toggle visibility, switch between bilingual / English-only / Chinese-only, adjust font size and position, enable semi-transparent background.
+- **Flexible display controls** — toggle visibility, switch between source+Chinese / source-only / Chinese-only, adjust font size and position, and enable a background.
 
 ## Architecture
 
 ```
-Chrome Extension  --  Native Messaging Host  --  Local FastAPI Server (127.0.0.1:18765)
+YouTube / Bilibili  --  Chrome Extension  --  Native Messaging  --  Local FastAPI (127.0.0.1:18765)
                                                      |-- yt-dlp (caption / audio download)
-                                                     |-- faster-whisper (GPU / CPU)
-                                                     |-- OpenAI-compatible LLM
+                                                     |-- multilingual faster-whisper (GPU / CPU)
+                                                     |-- user-configured OpenAI-compatible API
 ```
 
-The local server starts on demand and shuts down when idle. API keys are never bundled, logged, or committed.
+The local server starts on demand and closes after a task. The API key is stored only in the local service configuration and is never bundled or logged; titles and captions are sent with the key to the model endpoint you configure.
 
 ## Prerequisites
 
@@ -76,15 +78,15 @@ Open the extension popup, click **Settings**, and fill in:
 | Field | Description |
 |---|---|
 | Base URL | OpenAI-compatible API root, e.g. `https://api.deepseek.com/v1` |
-| API Key | Your API key — stored only in local config, never transmitted elsewhere |
+| API Key | Stored locally and sent only to the model endpoint you configure |
 | Translation model | Model used for subtitle translation |
 | Summary model | Model used for summary and key-point generation |
-| Whisper model | `tiny.en` / `base.en` / `small.en` / `medium.en` |
+| Whisper model | Multilingual `tiny` / `base` / `small` / `medium`; defaults to `small` |
 | Device | `auto` (GPU preferred) / `cuda` / `cpu` |
 
 ## Usage
 
-Navigate to any English YouTube video. Click the extension icon and select **Process Current Video**. The first translated subtitle batch appears within seconds; the full transcript, summary, and key points follow automatically.
+Navigate to an English or Japanese YouTube/Bilibili video. Click the extension icon and select **Process Current Video**. Public captions are reused when available; otherwise local Whisper downloads and transcribes the audio with automatic language detection. The first translated batch becomes playable while the summary runs in parallel.
 
 After a browser, network, or local-service interruption, click **Process Current Video** again or **↻ Retry** in the sidebar. Completed extraction, translation, and summary progress is reused. **Clear Subtitle Cache** also removes these checkpoints.
 
@@ -102,6 +104,13 @@ After a browser, network, or local-service interruption, click **Process Current
 
 **Settings page fails to save ("Failed to fetch")**
 - Reload the extension in `chrome://extensions` and retry.
+
+**Bilibili falls back to audio transcription**
+- Some official Bilibili CC captions require an authenticated subtitle API. The extension does not read browser cookies and safely falls back to local transcription.
+- Multi-part videos are cached independently by BV ID and `p` parameter.
+
+**First Japanese transcription downloads another model**
+- Legacy `small.en` settings are migrated to multilingual `small`; its weights are downloaded on first use.
 
 ## License
 

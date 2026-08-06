@@ -87,3 +87,10 @@ body.ytba-fullscreen #ytba-root.ytba-collapsed { top: 0; height: 100vh; }
 body:has(.html5-video-player.ytp-fullscreen) #ytba-root { top: 0; height: 100vh; }
 body:has(.html5-video-player.ytp-fullscreen) #ytba-root.ytba-collapsed { top: 0; height: 100vh; }
 body:has(.html5-video-player.ytp-fullscreen) #page-manager { margin-right: 0; }
+/* Moon Begin: Bilibili uses different page/player containers. */
+body.ytba-site-bilibili.ytba-panel-open #app { margin-right:390px; transition:margin-right .34s cubic-bezier(.22,.8,.25,1); }
+body.ytba-site-bilibili.ytba-panel-collapsed #app, body.ytba-site-bilibili.ytba-fullscreen #app { margin-right:0; }
+body.ytba-site-bilibili .bpx-player-container, body.ytba-site-bilibili .bilibili-player { position:relative; }
+body.ytba-site-bilibili:has(.bpx-state-fullscreen) #app { margin-right:0; }
+body.ytba-site-bilibili:has(.bpx-state-fullscreen) #ytba-root { top:0; height:100vh; }
+/* Moon End */

@@ -20,7 +20,7 @@ if ($LASTEXITCODE -ne 0) { throw "本机启动器编译失败。" }
 
 $Manifest = @{
     name = "com.moon.youtube_bilingual_assistant"
-    description = "YouTube 双语字幕助手本机启动器"
+    description = "视频 AI 双语字幕助手本机启动器"
     path = $ExecutablePath
     type = "stdio"
     allowed_origins = @("chrome-extension://$ExtensionId/")
