@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.12.2`
+Current version: `v0.12.3`
 
 </div>
 
@@ -35,6 +35,7 @@ Current version: `v0.12.2`
 - **Task controls** — pause, resume, or cancel while preserving completed extraction, translation, and summary checkpoints.
 - **Unified layout and appearance** — overlay/push applies in windowed and fullscreen playback, controls are grouped, and panel background transparency is configurable.
 - **Workspace-style push mode** — the site header and content reflow together beside a full-height, clearly separated assistant workspace.
+- **Bilibili header awareness** — the sidebar stays below the live site header in page mode and returns to full height in fullscreen.
 
 ## Architecture
 

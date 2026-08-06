@@ -167,6 +167,26 @@
     if(!host&&root&&root.parentElement!==document.body)document.body.appendChild(root);
     host?.classList.add("ytba-fullscreen-host");
     document.body.classList.toggle("ytba-fullscreen",Boolean(host));
+    updateSiteHeaderOffset(Boolean(host));
+    // Moon End
+  }
+
+  function updateSiteHeaderOffset(fullscreen=false) {
+    // Moon Begin: keep the Bilibili account/navigation bar unobstructed in page mode.
+    if(site!=="bilibili")return;
+    if(fullscreen){document.body.style.setProperty("--ytba-site-header-offset","0px");return;}
+    const selectors=[
+      "#bili-header-container", ".bili-header__bar", ".mini-header",
+      ".international-header .mini-header__content",
+    ];
+    const bottoms=selectors.flatMap(selector=>[...document.querySelectorAll(selector)])
+      .map(element=>element.getBoundingClientRect())
+      .filter(rect=>rect.width>0&&rect.height>0&&rect.bottom>0&&rect.top<140)
+      .map(rect=>rect.bottom);
+    // Bilibili changes header implementations frequently. Its compact bar is 64px;
+    // cap banner-like containers so they do not push the assistant below the player.
+    const offset=Math.round(Math.min(112,Math.max(64,...bottoms)));
+    document.body.style.setProperty("--ytba-site-header-offset",`${offset}px`);
     // Moon End
   }
 

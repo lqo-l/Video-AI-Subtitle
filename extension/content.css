@@ -133,7 +133,8 @@ body:has(.html5-video-player.ytp-fullscreen) #ytba-root { top: 0; height: 100vh;
 body:has(.html5-video-player.ytp-fullscreen) #ytba-root.ytba-collapsed { top:0; height:136px; }
 body:has(.html5-video-player.ytp-fullscreen) #page-manager { margin-right:0; margin-left:0; }
 /* Moon Begin: Bilibili uses different page/player containers. */
-body.ytba-site-bilibili #ytba-root { top:0; height:100vh; }
+body.ytba-site-bilibili:not(.ytba-fullscreen) #ytba-root { top:var(--ytba-site-header-offset,64px);height:calc(100vh - var(--ytba-site-header-offset,64px)); }
+body.ytba-site-bilibili.ytba-fullscreen #ytba-root { top:0;height:100vh; }
 body.ytba-site-bilibili #ytba-root.ytba-collapsed { height:136px; }
 body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-right #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-right:var(--ytba-panel-width,390px); margin-left:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
 body.ytba-layout-push.ytba-site-bilibili.ytba-panel-open.ytba-panel-left #app { width:calc(100% - var(--ytba-panel-width,390px)); margin-left:var(--ytba-panel-width,390px); margin-right:0; transition:width .34s cubic-bezier(.22,.8,.25,1),margin .34s cubic-bezier(.22,.8,.25,1); }
