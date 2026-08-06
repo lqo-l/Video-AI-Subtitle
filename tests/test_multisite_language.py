@@ -85,8 +85,10 @@ def test_prepare_whisper_model_reuses_complete_legacy_model(monkeypatch, tmp_pat
     (model_dir / ".ytba-model-size").write_text("6")
     monkeypatch.setattr(pipeline, "CACHE_DIR", tmp_path / "cache")
     progress = []
-    assert pipeline._prepare_whisper_model("small.en", progress.append) == str(model_dir)
-    assert progress == [100]
+    assert pipeline._prepare_whisper_model(
+        "small.en", lambda *args: progress.append(args)
+    ) == str(model_dir)
+    assert progress == [(100, 6, 6, 0, "本机缓存")]
 
 
 def test_bilibili_japanese_pipeline_writes_site_specific_cache(tmp_path, monkeypatch):

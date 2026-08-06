@@ -24,6 +24,10 @@ from .models import JobView, ProcessedVideo, Segment
 JOBS: dict[str, JobView] = {}
 CACHE_SCHEMA_VERSION = 2  # Moon Add: invalidate pre-normalization subtitle caches.
 SUPPORTED_LANGUAGES = ("en", "ja", "zh")
+WHISPER_MODEL_ENDPOINTS = (
+    ("HF 镜像", "https://hf-mirror.com"),
+    ("Hugging Face 官方源", "https://huggingface.co"),
+)  # Moon Add: prefer the mainland-friendly mirror and fall back automatically.
 
 
 def _write_json_atomic(path: Path, data: dict) -> None:
@@ -221,7 +225,8 @@ def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | No
 
 
 def _prepare_whisper_model(
-    model_name: str, progress_callback: Callable[[int], None] | None = None
+    model_name: str,
+    progress_callback: Callable[[int, int, int, float, str], None] | None = None,
 ) -> str:
     """Download selected model once and report byte-based first-run progress."""
     # Moon Begin
@@ -238,7 +243,8 @@ def _prepare_whisper_model(
     for cached_path in standard_snapshots.glob("*") if standard_snapshots.exists() else []:
         if all((cached_path / name).exists() for name in ("config.json", "model.bin", "tokenizer.json")):
             if progress_callback:
-                progress_callback(100)
+                size = (cached_path / "model.bin").stat().st_size
+                progress_callback(100, size, size, 0, "本机缓存")
             return str(cached_path)
 
     legacy_model_dir = CACHE_DIR.parent / "models" / model_name.replace("/", "--")
@@ -252,7 +258,7 @@ def _prepare_whisper_model(
         and model_file.stat().st_size == marked_size
     ):
         if progress_callback:
-            progress_callback(100)
+            progress_callback(100, marked_size, marked_size, 0, "本机缓存")
         return str(legacy_model_dir)
 
     # Moon Begin: releases 0.11.2/0.11.3 may leave a valid partial model.bin in
@@ -268,27 +274,37 @@ def _prepare_whisper_model(
     if partial_model and (legacy_model_dir / "config.json").exists():
         import httpx
 
-        model_url = f"https://huggingface.co/{repo_id}/resolve/main/model.bin"
+        model_url = ""
         downloaded = partial_model.stat().st_size
         probe = None
-        for _ in range(3):
-            try:
-                probe = httpx.get(
-                    model_url, headers={"Range":"bytes=0-0"}, follow_redirects=True,
-                    timeout=15,
-                )
-                probe.raise_for_status()
+        source_name = ""
+        for candidate_source, endpoint in WHISPER_MODEL_ENDPOINTS:
+            candidate_url = f"{endpoint}/{repo_id}/resolve/main/model.bin"
+            for _ in range(2):
+                try:
+                    probe = httpx.get(
+                        candidate_url, headers={"Range":"bytes=0-0"},
+                        follow_redirects=True, timeout=15,
+                    )
+                    probe.raise_for_status()
+                    model_url = candidate_url
+                    source_name = candidate_source
+                    break
+                except httpx.HTTPError:
+                    probe = None
+            if probe is not None:
                 break
-            except httpx.HTTPError:
-                probe = None
         if probe is None:
-            raise RuntimeError("连接 Hugging Face 模型仓库超时，请检查网络后重试")
+            raise RuntimeError("连接 HF 镜像和官方模型仓库均超时，请检查网络后重试")
         match = re.search(r"/(\d+)$", probe.headers.get("content-range", ""))
         total_bytes = int(match.group(1)) if match else 0
         if probe.status_code != 206 or total_bytes <= downloaded:
             raise RuntimeError("无法获取语音模型断点信息，请检查网络后重试")
         if progress_callback:
-            progress_callback(min(99, int(downloaded * 100 / total_bytes)))
+            progress_callback(
+                min(99, int(downloaded * 100 / total_bytes)),
+                downloaded, total_bytes, 0, source_name,
+            )
         curl = shutil.which("curl.exe") or shutil.which("curl")
         if not curl:
             raise RuntimeError("系统缺少 curl，无法可靠续传语音模型")
@@ -298,10 +314,22 @@ def _prepare_whisper_model(
              "-o", str(partial_model), model_url],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+        previous_bytes = downloaded
+        previous_time = time.monotonic()
+        smoothed_speed = 0.0
         while process.poll() is None:
             downloaded = partial_model.stat().st_size
+            now = time.monotonic()
+            elapsed = max(0.001, now - previous_time)
+            current_speed = max(0, downloaded - previous_bytes) / elapsed
+            if current_speed:
+                smoothed_speed = current_speed if not smoothed_speed else smoothed_speed * 0.7 + current_speed * 0.3
+            previous_bytes, previous_time = downloaded, now
             if progress_callback:
-                progress_callback(min(99, int(downloaded * 100 / total_bytes)))
+                progress_callback(
+                    min(99, int(downloaded * 100 / total_bytes)),
+                    downloaded, total_bytes, smoothed_speed, source_name,
+                )
             time.sleep(0.5)
         if process.returncode:
             raise RuntimeError(f"语音模型下载中断（curl {process.returncode}），请重试")
@@ -311,7 +339,7 @@ def _prepare_whisper_model(
         partial_model.replace(legacy_model_dir / "model.bin")
         completion_marker.write_text(str(total_bytes), encoding="ascii")
         if progress_callback:
-            progress_callback(100)
+            progress_callback(100, total_bytes, total_bytes, 0, "本机缓存")
         return str(legacy_model_dir)
     # Moon End
 
@@ -320,6 +348,8 @@ def _prepare_whisper_model(
         "tokenizer.json", "vocabulary.*",
     ]
     reported_percent = 0
+    active_source = WHISPER_MODEL_ENDPOINTS[0][0]
+    progress_started = time.monotonic()
 
     class DownloadProgress(tqdm):
         """Forward Hugging Face's aggregate byte progress to the job view."""
@@ -334,23 +364,40 @@ def _prepare_whisper_model(
                 percent = min(99, int(self.n * 100 / self.total))
                 if percent > reported_percent:
                     reported_percent = percent
-                    progress_callback(percent)
+                    elapsed = max(0.001, time.monotonic() - progress_started)
+                    progress_callback(
+                        percent, int(self.n), int(self.total), self.n / elapsed,
+                        active_source,
+                    )
             return result
 
     # Moon Modified: new downloads use faster-whisper's standard cache. If the
     # previous release already wrote a partial legacy copy, resume that copy so
     # the user does not lose hundreds of megabytes of download progress.
     if progress_callback:
-        progress_callback(0)
+        progress_callback(0, 0, 0, 0, active_source)
     download_options = {
         "allow_patterns": allow_patterns,
         "tqdm_class": DownloadProgress,
     }
     if legacy_model_dir.exists() and any(legacy_model_dir.iterdir()):
         download_options["local_dir"] = legacy_model_dir
-    model_path = snapshot_download(repo_id, **download_options)
+    try:
+        model_path = snapshot_download(
+            repo_id, endpoint=WHISPER_MODEL_ENDPOINTS[0][1], **download_options
+        )
+    except Exception:
+        # Moon Add: mirror outages must not make first-time setup impossible.
+        active_source = WHISPER_MODEL_ENDPOINTS[1][0]
+        if progress_callback:
+            progress_callback(0, 0, 0, 0, active_source)
+        model_path = snapshot_download(
+            repo_id, endpoint=WHISPER_MODEL_ENDPOINTS[1][1], **download_options
+        )
     if progress_callback:
-        progress_callback(100)
+        model_file = Path(model_path) / "model.bin"
+        size = model_file.stat().st_size if model_file.exists() else 0
+        progress_callback(100, size, size, 0, "本机缓存")
     return str(model_path)
     # Moon End
 
@@ -359,7 +406,7 @@ def _transcribe(
     audio: Path,
     model_name: str,
     device_setting: str,
-    download_progress: Callable[[int], None] | None = None,
+    download_progress: Callable[[int, int, int, float, str], None] | None = None,
 ) -> tuple[list[Segment], str]:
     import ctranslate2
 
@@ -453,15 +500,26 @@ async def process_job(job_id: str, url: str) -> None:
             if not extracted:
                 config = load_config()
                 # Moon Begin: distinguish first-run model download from transcription.
-                def report_model_download(percent: int) -> None:
+                def human_size(value: float) -> str:
+                    return f"{value / 1024 / 1024:.1f} MB"
+
+                def report_model_download(
+                    percent: int, downloaded: int, total: int,
+                    speed: float, source_name: str,
+                ) -> None:
                     if percent >= 100:
                         job.stage, job.progress = "正在识别语音", 45
                     else:
-                        suffix = "（连接超过 30 秒会自动报错）" if percent == 0 else ""
-                        job.stage = f"正在下载语音模型 {percent}%{suffix}"
+                        if total:
+                            size_text = f"{human_size(downloaded)} / {human_size(total)}"
+                            speed_text = f" · {human_size(speed)}/s" if speed else ""
+                            detail = f"{size_text}{speed_text} · {percent}%"
+                        else:
+                            detail = "正在连接…"
+                        job.stage = f"正在下载语音模型 · {source_name} · {detail}"
                         job.progress = 25 + round(percent * 0.2)
 
-                job.stage, job.progress = "正在下载语音模型 0%（连接超过 30 秒会自动报错）", 25
+                job.stage, job.progress = "正在通过 HF 镜像下载语音模型 0%", 25
                 extracted, source_language = await asyncio.to_thread(
                     _transcribe, audio, config.whisper_model, config.device,
                     report_model_download,
