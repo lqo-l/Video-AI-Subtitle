@@ -19,18 +19,24 @@ $owner = New-Object System.Windows.Forms.Form
 $owner.TopMost = $true
 $owner.ShowInTaskbar = $false
 $owner.WindowState = 'Minimized'
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = $env:YTBA_FOLDER_TITLE
-$dialog.ShowNewFolderButton = $true
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = $env:YTBA_FOLDER_TITLE
+$dialog.CheckFileExists = $false
+$dialog.CheckPathExists = $true
+$dialog.ValidateNames = $false
+$dialog.DereferenceLinks = $true
+$dialog.Filter = '文件夹|*.folder'
+$dialog.FileName = '选择当前文件夹'
 if (Test-Path -LiteralPath $env:YTBA_INITIAL_FOLDER) {
-    $dialog.SelectedPath = $env:YTBA_INITIAL_FOLDER
+    $dialog.InitialDirectory = $env:YTBA_INITIAL_FOLDER
 }
 $owner.Show()
 $owner.Activate()
 try {
     if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+        $selected = [System.IO.Path]::GetDirectoryName($dialog.FileName)
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        Write-Output $dialog.SelectedPath
+        Write-Output $selected
     }
 } finally {
     $dialog.Dispose()

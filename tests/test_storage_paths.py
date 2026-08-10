@@ -72,6 +72,15 @@ def test_folder_picker_reports_changed_path_and_existing_content(tmp_path, monke
     assert result.path == str(selected.resolve())
 
 
+def test_folder_picker_supports_typing_or_pasting_a_path():
+    # Moon Add: use the Windows file dialog address field instead of the folder tree-only dialog.
+    script = storage._FOLDER_PICKER_SCRIPT
+    assert "System.Windows.Forms.OpenFileDialog" in script
+    assert "$dialog.ValidateNames = $false" in script
+    assert "$dialog.CheckFileExists = $false" in script
+    assert "FolderBrowserDialog" not in script
+
+
 def test_storage_api_uses_semantic_kind_and_update_body(monkeypatch, tmp_path):
     from service.app.models import ModelStatus
 
