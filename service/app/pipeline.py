@@ -1100,6 +1100,11 @@ def cancel_model_download() -> ModelStatus:
     if MODEL_DOWNLOAD:
         MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage = "cancelled", "下载已取消，可稍后续传"
     return MODEL_DOWNLOAD or inspect_whisper_model()
+
+
+def model_download_worker_active() -> bool:
+    # Moon Add: cache cleanup must wait until the blocking worker has observed cancellation.
+    return bool(MODEL_DOWNLOAD_TASK and not MODEL_DOWNLOAD_TASK.done())
 # Moon End
 
 
@@ -1257,4 +1262,9 @@ def cancel_cuda_runtime_install() -> CudaRuntimeStatus:
     ):
         CUDA_INSTALL.state, CUDA_INSTALL.stage = "cancelled", "下载已取消，可稍后继续"
     return CUDA_INSTALL or inspect_cuda_runtime()
+
+
+def cuda_install_worker_active() -> bool:
+    # Moon Add
+    return bool(CUDA_INSTALL_TASK and not CUDA_INSTALL_TASK.done())
 # Moon End

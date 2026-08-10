@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from .config import default_model_install_dir, load_config, resolve_install_dir, save_config
-from .models import StoragePathResult, StoragePathSelection, StoragePathUpdate
+from .models import DownloadCacheResult, StoragePathResult, StoragePathSelection, StoragePathUpdate
 
 
 _FOLDER_PICKER_SCRIPT = r"""
@@ -41,7 +41,14 @@ try {
 
 
 def _model_directory_valid(path: Path) -> bool:
-    return all((path / name).is_file() for name in ("config.json", "tokenizer.json", "model.bin"))
+    if not all((path / name).is_file() for name in ("config.json", "tokenizer.json", "model.bin")):
+        return False
+    size = (path / "model.bin").stat().st_size
+    marker = path / ".ytba-model-size"
+    try:
+        return size > 0 and (not marker.is_file() or int(marker.read_text().strip()) == size)
+    except (OSError, ValueError):
+        return False
 
 
 def _model_sources(root: Path) -> list[tuple[str, Path]]:
@@ -192,4 +199,59 @@ def update_install_directory(update: StoragePathUpdate) -> StoragePathResult:
         kind=update.kind, path=str(target), migrated=bool(update.migrate and migrated_items),
         migrated_items=migrated_items,
     )
+
+
+# Moon Begin: remove resumable transfer data without touching valid installations.
+def _path_size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    size = 0
+    for item in path.rglob("*"):
+        try:
+            if item.is_file():
+                size += item.stat().st_size
+        except OSError:
+            continue
+    return size
+
+
+def _remove_path(path: Path) -> tuple[int, int]:
+    if not path.exists():
+        return 0, 0
+    files = 1 if path.is_file() else sum(1 for item in path.rglob("*") if item.is_file())
+    size = _path_size(path)
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+    return files, size
+
+
+def clear_download_cache(kind: str, model: str = "") -> DownloadCacheResult:
+    if kind not in ("model", "cuda"):
+        raise HTTPException(400, "未知的缓存类型")
+    removed_files = 0
+    freed_bytes = 0
+    if kind == "cuda":
+        targets = [default_model_install_dir().parent / "cuda-runtime-downloads"]
+    else:
+        if not model.strip():
+            raise HTTPException(400, "缺少模型名称")
+        model_dir = resolve_install_dir("model") / model.removesuffix(".en").replace("/", "--")
+        if not model_dir.is_dir():
+            targets = []
+        elif _model_directory_valid(model_dir):
+            # A complete model may retain Hugging Face metadata; only remove transfer artifacts.
+            targets = [model_dir / ".cache"]
+        else:
+            # This managed directory contains only an incomplete download for the selected model.
+            targets = [model_dir]
+    for target in targets:
+        files, size = _remove_path(target)
+        removed_files += files
+        freed_bytes += size
+    return DownloadCacheResult(
+        kind=kind, removed_files=removed_files, freed_bytes=freed_bytes,
+    )
+# Moon End
 # Moon End

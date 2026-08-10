@@ -52,6 +52,12 @@ class StoragePathResult(BaseModel):
     path: str
     migrated: bool = False
     migrated_items: int = 0
+
+
+class DownloadCacheResult(BaseModel):
+    kind: Literal["model", "cuda"]
+    removed_files: int = 0
+    freed_bytes: int = 0
 # Moon End
 
 

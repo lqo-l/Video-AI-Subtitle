@@ -83,4 +83,16 @@ def test_settings_offer_folder_picker_and_confirm_existing_migration():
     assert 'data-migration="migrate"' in html
     assert "selected.has_existing?await askMigration(kind)" in script
     assert 'request("/storage/path",{method:"PUT"' in script
+
+
+def test_secondary_storage_actions_are_collapsed_and_cache_scope_is_explicit():
+    # Moon Add: frequent actions stay visible while diagnostics and cleanup use compact menus.
+    root = Path(__file__).parents[1] / "extension"
+    html = (root / "options.html").read_text(encoding="utf-8")
+    script = (root / "options.js").read_text(encoding="utf-8")
+    assert 'class="action-menu" id="model_more"' in html
+    assert 'class="action-menu" id="cuda_more"' in html
+    assert html.count("清理下载缓存") == 2
+    assert 'request(`/storage/download-cache?${query}`,{method:"DELETE"})' in script
+    assert "已安装且可用的文件不会被删除" in script
 # Moon End

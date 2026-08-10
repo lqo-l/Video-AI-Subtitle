@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.15.0`
+Current version: `v0.16.0`
 
 </div>
 
@@ -34,6 +34,7 @@ Current version: `v0.15.0`
 - **Flexible display controls** — toggle visibility, switch between source+Chinese / source-only / Chinese-only, adjust font size and position, and enable a background.
 - **Advanced local settings** — validate a custom multilingual Whisper path, select mirror/official downloads, pre-download weights, and inspect size, speed, and percentage.
 - **Custom install targets** — choose separate folders for Whisper models and GPU runtime files, with confirmed migration that preserves the original files.
+- **Controllable resume cache** — cancellation keeps resumable progress; the More menu can clear transfer cache without removing installed files.
 - **Task controls** — pause, resume, or cancel while preserving completed extraction, translation, and summary checkpoints.
 - **Unified layout and appearance** — overlay/push applies in windowed and fullscreen playback, controls are grouped, and panel background transparency is configurable.
 - **Workspace-style push mode** — the site header and content reflow together beside a full-height, clearly separated assistant workspace.

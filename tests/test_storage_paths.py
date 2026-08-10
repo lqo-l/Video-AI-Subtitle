@@ -91,4 +91,44 @@ def test_storage_api_uses_semantic_kind_and_update_body(monkeypatch, tmp_path):
     })
     assert response.status_code == 200
     assert response.json()["migrated_items"] == 1
+
+
+def test_clear_incomplete_model_cache_without_touching_complete_model(tmp_path, monkeypatch):
+    model_root = tmp_path / "models"
+    incomplete = model_root / "small"
+    (incomplete / ".cache").mkdir(parents=True)
+    (incomplete / ".cache" / "model.bin.incomplete").write_bytes(b"partial")
+    monkeypatch.setattr(storage, "resolve_install_dir", lambda kind: model_root)
+
+    result = storage.clear_download_cache("model", "small")
+
+    assert result.removed_files == 1
+    assert result.freed_bytes == len(b"partial")
+    assert not incomplete.exists()
+
+    complete = model_root / "medium"
+    _write_model(complete, b"complete")
+    (complete / ".cache").mkdir()
+    (complete / ".cache" / "metadata").write_bytes(b"cache")
+    result = storage.clear_download_cache("model", "medium")
+    assert result.freed_bytes == len(b"cache")
+    assert (complete / "model.bin").read_bytes() == b"complete"
+    assert not (complete / ".cache").exists()
+
+
+def test_clear_cuda_download_cache_keeps_installed_runtime(tmp_path, monkeypatch):
+    app_dir = tmp_path / "app"
+    downloads = app_dir / "cuda-runtime-downloads"
+    downloads.mkdir(parents=True)
+    (downloads / "runtime.whl").write_bytes(b"wheel")
+    installed = tmp_path / "installed" / "nvidia" / "cublas" / "bin"
+    installed.mkdir(parents=True)
+    (installed / "cublas64_12.dll").write_bytes(b"dll")
+    monkeypatch.setattr(storage, "default_model_install_dir", lambda: app_dir / "models")
+
+    result = storage.clear_download_cache("cuda")
+
+    assert result.freed_bytes == len(b"wheel")
+    assert not downloads.exists()
+    assert (installed / "cublas64_12.dll").exists()
 # Moon End

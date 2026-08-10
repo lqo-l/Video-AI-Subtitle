@@ -12,14 +12,16 @@ from fastapi.responses import PlainTextResponse
 
 from .config import CACHE_DIR, ensure_dirs, load_config, resolve_install_dir, save_config
 from .models import (
-    CudaRuntimeStatus, JobView, ModelStatus, PublicConfig, ServiceConfig,
+    CudaRuntimeStatus, DownloadCacheResult, JobView, ModelStatus, PublicConfig, ServiceConfig,
     StoragePathResult, StoragePathSelection, StoragePathUpdate, VideoRequest,
 )
 from .pipeline import (
-    JOBS, cancel_cuda_runtime_install, cancel_job, cancel_model_download, create_job, get_cuda_runtime_status,
-    get_model_status, pause_job, resume_job, start_cuda_runtime_install, start_model_download,
+    JOBS, cancel_cuda_runtime_install, cancel_job, cancel_model_download, create_job,
+    cuda_install_worker_active, get_cuda_runtime_status, get_model_status,
+    model_download_worker_active, pause_job, resume_job,
+    start_cuda_runtime_install, start_model_download,
 )
-from .storage import select_install_directory, update_install_directory
+from .storage import clear_download_cache, select_install_directory, update_install_directory
 
 
 app = FastAPI(title="Video Bilingual Assistant", version="0.2.0")
@@ -286,6 +288,15 @@ def storage_update(update: StoragePathUpdate):
     if update.kind == "cuda" and get_cuda_runtime_status().state == "running":
         raise HTTPException(409, "GPU 运行库正在配置，暂时不能更改安装位置")
     return update_install_directory(update)
+
+
+@app.delete("/storage/download-cache", response_model=DownloadCacheResult)
+def storage_cache_clear(kind: str, model: str = ""):
+    if kind == "model" and model_download_worker_active():
+        raise HTTPException(409, "模型下载仍在停止，请稍后再清理")
+    if kind == "cuda" and cuda_install_worker_active():
+        raise HTTPException(409, "GPU 下载仍在停止，请稍后再清理")
+    return clear_download_cache(kind, model)
 # Moon End
 
 

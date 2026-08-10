@@ -33,6 +33,7 @@ function renderModel(data,query=modelQuery()){
   download_model.disabled=running;
   download_model.hidden=data.valid&&!running;
   choose_model_dir.disabled=running;
+  clear_model_cache.disabled=running;
   download_model.textContent=running?"正在下载…":"下载 / 继续下载";
   cancel_model_download.hidden=!running;
   cancel_model_download.disabled=false;
@@ -65,6 +66,7 @@ function renderCuda(data){
   install_cuda.disabled=running||data.valid;
   install_cuda.hidden=data.valid&&!running;
   choose_cuda_dir.disabled=running;
+  clear_cuda_cache.disabled=running;
   install_cuda.textContent=data.valid?"GPU 已配置":running?"正在配置…":"一键配置 GPU";
   const downloading=running&&(!data.total||data.downloaded<data.total);
   cancel_cuda_download.hidden=!downloading;
@@ -97,6 +99,22 @@ panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
 check_model.onclick=()=>checkModel();
 download_model.onclick=async()=>{const query=modelQuery();try{download_model.disabled=true;renderModel(await request(`/models/download?${query}`,{method:"POST"}),query);}catch(error){model_state.textContent="下载失败";model_state.classList.add("failed");model_detail.textContent=error.message;download_model.disabled=false;}};
 cancel_model_download.onclick=async()=>{try{cancel_model_download.disabled=true;renderModel(await request("/models/download/cancel",{method:"POST"}));}catch(error){model_detail.textContent=`无法取消下载：${error.message}`;cancel_model_download.disabled=false;}};
+async function clearTransferCache(kind){
+  const label=kind==="model"?`Whisper ${whisper_model.value} 模型的未完成下载`:"GPU 运行库安装包";
+  if(!confirm(`确定清理${label}？\n\n已安装且可用的文件不会被删除。清理后再次下载将从头开始。`))return;
+  const button=kind==="model"?clear_model_cache:clear_cuda_cache;
+  button.disabled=true;
+  try{
+    const query=new URLSearchParams({kind,model:whisper_model.value});
+    const result=await request(`/storage/download-cache?${query}`,{method:"DELETE"});
+    message.textContent=result.removed_files?`已清理 ${result.removed_files} 个文件，释放 ${humanSize(result.freed_bytes)}`:"没有可清理的下载缓存";
+    (kind==="model"?model_more:cuda_more).removeAttribute("open");
+    if(kind==="model")await checkModel();else await checkCuda();
+  }catch(error){message.textContent=`清理失败：${error.message}`;}
+  finally{button.disabled=false;}
+}
+clear_model_cache.onclick=()=>clearTransferCache("model");
+clear_cuda_cache.onclick=()=>clearTransferCache("cuda");
 open_model.onclick=async()=>{try{await request(`/models/open?${modelQuery()}`,{method:"POST"});}catch(error){model_detail.textContent=`无法打开模型文件夹：${error.message}`;}};
 check_cuda.onclick=()=>checkCuda();
 install_cuda.onclick=async()=>{
