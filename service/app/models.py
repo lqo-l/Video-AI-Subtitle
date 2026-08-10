@@ -94,6 +94,9 @@ class JobView(BaseModel):
     state: Literal["queued", "running", "paused", "completed", "failed", "cancelled"]
     stage: str
     progress: int
+    # Moon Add: expose real media-time progress while Whisper yields segments.
+    transcription_seconds: float = 0
+    transcription_total_seconds: float = 0
     # Moon Add: expose incremental translation state to the browser panel.
     translated_segments: int = 0
     total_segments: int = 0

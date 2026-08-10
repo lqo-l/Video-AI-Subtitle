@@ -100,6 +100,19 @@ def test_status_wave_is_host_style_safe_and_tool_pairs_remain_adjacent():
     assert html.index('data-control="smaller"') < html.index('data-control="larger"') < html.index('data-control="up"') < html.index('data-control="down"')
 
 
+def test_transcription_shows_real_media_time_progress():
+    # Moon Add: long recognition reports verified media time without synthetic estimates.
+    root = Path(__file__).parents[1]
+    script = (root / "extension" / "content.js").read_text(encoding="utf-8")
+    pipeline = (root / "service" / "app" / "pipeline.py").read_text(encoding="utf-8")
+    models = (root / "service" / "app" / "models.py").read_text(encoding="utf-8")
+    assert 'data-local-progress hidden' in script
+    assert "已识别 ${formatMediaTime(current)} / ${formatMediaTime(total)}" in script
+    assert 'job.stage.includes("识别语音")' in script
+    assert "transcription_progress(float(item.end), total_duration)" in pipeline
+    assert "transcription_seconds: float = 0" in models
+
+
 def test_secondary_storage_actions_are_collapsed_and_cache_scope_is_explicit():
     # Moon Modified: primary actions stay visible while low-frequency settings use fixed disclosure.
     root = Path(__file__).parents[1] / "extension"

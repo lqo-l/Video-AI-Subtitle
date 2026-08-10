@@ -50,6 +50,7 @@ def test_japanese_translation_uses_language_aware_prompt(monkeypatch):
 
 def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_path):
     observed = {}
+    progress = []
 
     class FakeInfo:
         language = "ja"
@@ -68,12 +69,17 @@ def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_
     monkeypatch.setattr(pipeline, "WhisperModel", FakeWhisperModel)
     # Moon Add: unit tests must not download model weights from Hugging Face.
     monkeypatch.setattr(pipeline, "_prepare_whisper_model", lambda model, callback: model)
-    segments, language = pipeline._transcribe(tmp_path / "audio.wav", "small.en", "cpu")
+    segments, language = pipeline._transcribe(
+        tmp_path / "audio.wav", "small.en", "cpu",
+        transcription_progress=lambda current, total: progress.append((current, total)),
+        expected_duration=12.0,
+    )
 
     assert observed["model"] == "small"
     assert observed["language_argument"] is None
     assert language == "ja"
     assert segments[0].source_language == "ja"
+    assert progress == [(0, 12.0), (1.0, 12.0)]
 
 
 def test_transcribe_auto_falls_back_when_cuda_fails_during_iteration(monkeypatch, tmp_path):

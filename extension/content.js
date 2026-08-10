@@ -157,7 +157,7 @@
     document.querySelector("#ytba-launcher")?.remove();
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手；右键关闭" aria-label="展开字幕助手">译</button><div class="ytba-resize-handle" data-resize title="拖拽调整侧栏宽度"></div><div class="ytba-head"><div class="ytba-brand"><span class="ytba-brand-mark" aria-hidden="true">译</span><span><strong>AI 双语字幕助手</strong><small>字幕 · 翻译 · 摘要</small></span></div><button class="ytba-icon-button" data-retry title="从缓存继续" aria-label="重试">↻</button><button class="ytba-icon-button ytba-collapse" data-close title="收缩侧栏" aria-label="收缩侧栏">&gt;</button><button class="ytba-icon-button ytba-dismiss" data-dismiss title="关闭助手" aria-label="关闭助手">×</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div><span data-status>准备中</span></div><div class="ytba-progress"><div style="width:0%"></div></div><div class="ytba-task-actions"><button data-task="pause">暂停</button><button data-task="cancel">取消</button></div></div><div class="ytba-primary-tools"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control ytba-language">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select></label><button class="ytba-control" data-layout-mode>布局：覆盖</button><details class="ytba-tools-menu"><summary title="更多工具">•••</summary><div class="ytba-tools-popover"><button class="ytba-control" data-control="smaller">字号 −</button><button class="ytba-control" data-control="larger">字号 ＋</button><button class="ytba-control" data-control="up">字幕上移</button><button class="ytba-control" data-control="down">字幕下移</button><button class="ytba-control" data-side>移到左侧</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-export disabled>导出 Markdown</button><button class="ytba-control" data-control="reset">恢复显示默认值</button></div></details></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手；右键关闭" aria-label="展开字幕助手">译</button><div class="ytba-resize-handle" data-resize title="拖拽调整侧栏宽度"></div><div class="ytba-head"><div class="ytba-brand"><span class="ytba-brand-mark" aria-hidden="true">译</span><span><strong>AI 双语字幕助手</strong><small>字幕 · 翻译 · 摘要</small></span></div><button class="ytba-icon-button" data-retry title="从缓存继续" aria-label="重试">↻</button><button class="ytba-icon-button ytba-collapse" data-close title="收缩侧栏" aria-label="收缩侧栏">&gt;</button><button class="ytba-icon-button ytba-dismiss" data-dismiss title="关闭助手" aria-label="关闭助手">×</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div><span data-status>准备中</span></div><div class="ytba-local-progress" data-local-progress hidden></div><div class="ytba-progress"><div style="width:0%"></div></div><div class="ytba-task-actions"><button data-task="pause">暂停</button><button data-task="cancel">取消</button></div></div><div class="ytba-primary-tools"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control ytba-language">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select></label><button class="ytba-control" data-layout-mode>布局：覆盖</button><details class="ytba-tools-menu"><summary title="更多工具">•••</summary><div class="ytba-tools-popover"><button class="ytba-control" data-control="smaller">字号 −</button><button class="ytba-control" data-control="larger">字号 ＋</button><button class="ytba-control" data-control="up">字幕上移</button><button class="ytba-control" data-control="down">字幕下移</button><button class="ytba-control" data-side>移到左侧</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-export disabled>导出 Markdown</button><button class="ytba-control" data-control="reset">恢复显示默认值</button></div></details></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
     // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
     root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
     root.querySelector("[data-dismiss]").onclick = event => { event.stopPropagation(); closeAssistant(); };
@@ -441,6 +441,20 @@
     if (spinner) spinner.style.display = done ? "none" : "inline-block";
   }
 
+  function formatMediaTime(seconds){
+    const value=Math.max(0,Math.floor(Number(seconds)||0));
+    const hours=Math.floor(value/3600);const minutes=Math.floor(value%3600/60);const rest=value%60;
+    return hours?`${hours}:${String(minutes).padStart(2,"0")}:${String(rest).padStart(2,"0")}`:`${minutes}:${String(rest).padStart(2,"0")}`;
+  }
+
+  function updateLocalProgress(current,total,active){
+    const detail=ensurePanel().querySelector("[data-local-progress]");
+    detail.hidden=!active;
+    if(!active){detail.textContent="";return;}
+    const percent=total>0?Math.min(100,Math.floor(current/total*100)):0;
+    detail.textContent=total>0?`已识别 ${formatMediaTime(current)} / ${formatMediaTime(total)} · ${percent}%`:`已识别至 ${formatMediaTime(current)}`;
+  }
+
   // Moon Begin: compact task controls share the checkpoint-aware service lifecycle.
   function refreshTaskControls() {
     const root=document.querySelector("#ytba-root");if(!root)return;
@@ -522,6 +536,7 @@
         ? `已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`
         : job.stage;
       updateStatus(liveStage, job.progress, job.error);
+      updateLocalProgress(job.transcription_seconds,job.transcription_total_seconds,job.state==="running"&&job.stage.includes("识别语音"));
       setTabComplete("transcript",job.total_segments>0&&job.translated_segments>=job.total_segments);
       setTabComplete("summary",job.summary_state==="completed");
       refreshTabStates();

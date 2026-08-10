@@ -39,6 +39,8 @@ body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, bod
 .ytba-dismiss:hover { color:#fff;background:#71363d; }
 .ytba-status { padding: 12px 14px; border-bottom: 1px solid #333842; }
 .ytba-status-row { display: flex; align-items: center; gap: 8px; }
+.ytba-local-progress { min-height:18px;margin:5px 0 0 36px;color:#aab7ca;font-size:12px;font-variant-numeric:tabular-nums; }
+.ytba-local-progress[hidden] { display:none; }
 .ytba-pulse { display: flex; align-items: center; justify-content: center; gap: 2px; width: 28px; height: 24px; padding: 4px 5px; border-radius: 9px; background: linear-gradient(145deg, rgba(55,120,255,.28), rgba(126,76,255,.2)); box-shadow: inset 0 0 0 1px rgba(130,170,255,.22), 0 4px 14px rgba(50,95,220,.2); }
 .ytba-pulse > span { display:block !important;width:2px !important;height:5px;border-radius:4px;background:linear-gradient(to top,#4b8cff,#a987ff);animation:ytba-wave 1.15s ease-in-out infinite;transform-origin:center; }
 .ytba-pulse > span:nth-child(2), .ytba-pulse > span:nth-child(4) { animation-delay:-.8s; }
