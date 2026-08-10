@@ -36,10 +36,11 @@ function modelQuery(){return new URLSearchParams({model:whisper_model.value,mode
 async function checkModel({quiet=false,query=modelQuery()}={}){
   if(modelRequestActive)return;
   modelRequestActive=true;
-  if(!quiet){check_model.disabled=true;model_state.textContent="检查中…";model_state.classList.remove("ready","failed");model_detail.textContent=`正在检查 Whisper ${whisper_model.value} 模型`;}
+  // Moon Modified: preserve the last trustworthy status and animate it without flashing the card.
+  if(!quiet){check_model.disabled=true;model_state.classList.add("checking");model_state.setAttribute("aria-busy","true");}
   try{await ensureService();renderModel(await request(`/models/status?${query}`),query);}
   catch(error){clearTimeout(modelPoll);model_state.textContent="检查失败";model_state.classList.add("failed");model_detail.textContent=error.message;check_model.disabled=false;download_model.disabled=false;download_model.textContent="下载 / 继续下载";}
-  finally{modelRequestActive=false;}
+  finally{modelRequestActive=false;if(!quiet){model_state.classList.remove("checking");model_state.removeAttribute("aria-busy");}}
 }
 function renderCuda(data){
   const running=data.state==="running";
@@ -61,10 +62,11 @@ function renderCuda(data){
 async function checkCuda({quiet=false}={}){
   if(cudaRequestActive)return;
   cudaRequestActive=true;
-  if(!quiet){check_cuda.disabled=true;cuda_state.textContent="检查中…";cuda_state.classList.remove("ready","failed");cuda_detail.textContent="正在检查显卡、cuBLAS 与 cuDNN";}
+  // Moon Modified: keep the current result visible while the refresh is pending.
+  if(!quiet){check_cuda.disabled=true;cuda_state.classList.add("checking");cuda_state.setAttribute("aria-busy","true");}
   try{await ensureService();renderCuda(await request("/cuda/status"));}
   catch(error){clearTimeout(cudaPoll);cuda_state.textContent="检查失败";cuda_state.classList.add("failed");cuda_detail.textContent=error.message;check_cuda.disabled=false;}
-  finally{cudaRequestActive=false;}
+  finally{cudaRequestActive=false;if(!quiet){cuda_state.classList.remove("checking");cuda_state.removeAttribute("aria-busy");}}
 }
 
 ensureService().then(()=>request("/config")).then(async data=>{
@@ -79,10 +81,10 @@ ensureService().then(()=>request("/config")).then(async data=>{
 api_key.onfocus=()=>{if(api_key.value===KEY_PLACEHOLDER)api_key.value="";};
 api_key.onblur=()=>{if(!api_key.value&&api_key.dataset.configured==="true")api_key.value=KEY_PLACEHOLDER;};
 panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
-check_model.onclick=checkModel;
+check_model.onclick=()=>checkModel();
 download_model.onclick=async()=>{const query=modelQuery();try{download_model.disabled=true;renderModel(await request(`/models/download?${query}`,{method:"POST"}),query);}catch(error){model_state.textContent="下载失败";model_state.classList.add("failed");model_detail.textContent=error.message;download_model.disabled=false;}};
 open_model.onclick=async()=>{try{await request(`/models/open?${modelQuery()}`,{method:"POST"});}catch(error){model_detail.textContent=`无法打开模型文件夹：${error.message}`;}};
-check_cuda.onclick=checkCuda;
+check_cuda.onclick=()=>checkCuda();
 install_cuda.onclick=async()=>{
   if(!confirm("将下载约 1.37 GB 的 NVIDIA cuBLAS、cuDNN 与 NVRTC 到插件虚拟环境。继续吗？"))return;
   try{renderCuda(await request("/cuda/install",{method:"POST"}));}catch(error){cuda_state.textContent="配置失败";cuda_state.classList.add("failed");cuda_detail.textContent=error.message;}

@@ -27,4 +27,16 @@ def test_collapsed_panel_hides_content_without_reflow_flash():
         if "#ytba-root.ytba-collapsed > *:not(.ytba-edge-handle)" in line
     )
     assert "display:none !important" in collapsed_rule
+
+
+def test_settings_checks_preserve_status_and_disabled_buttons_use_default_cursor():
+    # Moon Add: manual checks give quiet local feedback without replacing stable status copy.
+    root = Path(__file__).parents[1] / "extension"
+    html = (root / "options.html").read_text(encoding="utf-8")
+    script = (root / "options.js").read_text(encoding="utf-8")
+    assert "button:disabled{opacity:.5;cursor:default}" in html
+    assert 'model_state.classList.add("checking")' in script
+    assert 'cuda_state.classList.add("checking")' in script
+    assert 'model_state.textContent="检查中…"' not in script
+    assert 'cuda_state.textContent="检查中…"' not in script
 # Moon End
