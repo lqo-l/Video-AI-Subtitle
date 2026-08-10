@@ -115,6 +115,19 @@ def test_transcription_shows_real_media_time_progress():
     assert "transcription_seconds: float = 0" in models
 
 
+def test_completed_status_offers_play_and_stays_dismissed_after_action():
+    # Moon Add: completion provides the next action and does not reappear after it is used.
+    root = Path(__file__).parents[1] / "extension"
+    script = (root / "content.js").read_text(encoding="utf-8")
+    css = (root / "content.css").read_text(encoding="utf-8")
+    assert 'data-play-completed hidden>播放视频</button>' in script
+    assert "completionNoticeDismissed=true" in script
+    assert "status.hidden=true" in script
+    assert "player.play().catch(()=>{})" in script
+    assert 'playButton.hidden=completionNoticeDismissed' in script
+    assert ".ytba-play-completed[hidden],.ytba-status[hidden]" in css
+
+
 def test_secondary_storage_actions_are_collapsed_and_cache_scope_is_explicit():
     # Moon Modified: primary actions stay visible while low-frequency settings use fixed disclosure.
     root = Path(__file__).parents[1] / "extension"
