@@ -159,6 +159,47 @@ def test_inspect_whisper_model_reports_complete_and_partial_models(monkeypatch, 
     assert any(item.model == "small" and item.valid for item in medium_status.local_models)
 
 
+def test_new_model_download_reports_live_bytes_and_speed(monkeypatch, tmp_path):
+    # Moon Add: tqdm must keep its internal counters even when console rendering is suppressed.
+    import huggingface_hub
+    from huggingface_hub import constants
+
+    class File:
+        rfilename = "model.bin"
+        size = 100
+
+    class Info:
+        siblings = [File()]
+
+    class FakeApi:
+        def __init__(self, endpoint):
+            self.endpoint = endpoint
+
+        def model_info(self, *args, **kwargs):
+            return Info()
+
+    destination = tmp_path / "downloaded-model"
+
+    def fake_snapshot_download(repo_id, endpoint, allow_patterns, tqdm_class, **kwargs):
+        bar = tqdm_class(total=100, initial=0)
+        bar.update(40)
+        bar.close()
+        destination.mkdir()
+        (destination / "model.bin").write_bytes(b"x" * 100)
+        return str(destination)
+
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path / "hf-cache"))
+    monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(pipeline, "CACHE_DIR", tmp_path / "app" / "cache")
+    updates = []
+
+    assert pipeline._prepare_whisper_model(
+        "base", lambda *values: updates.append(values), download_source="official",
+    ) == str(destination)
+    assert any(0 < percent < 100 and downloaded == 40 and speed > 0 for percent, downloaded, _, speed, _ in updates)
+
+
 def test_bilibili_japanese_pipeline_writes_site_specific_cache(tmp_path, monkeypatch):
     cache_dir, work_dir = tmp_path / "cache", tmp_path / "work"
     cache_dir.mkdir()

@@ -463,10 +463,13 @@ def _prepare_whisper_model(
     class DownloadProgress(tqdm):
         """Forward Hugging Face's aggregate byte progress to the job view."""
         def __init__(self, *args, **kwargs):
-            kwargs["disable"] = True
             super().__init__(*args, **kwargs)
             with aggregate_lock:
                 aggregate_positions[id(self)] = int(self.n)
+
+        def display(self, *args, **kwargs):
+            # Moon Add: retain tqdm counters without drawing into the native-service log.
+            return None
 
         def update(self, amount=1):
             nonlocal reported_percent, previous_report_bytes, previous_report_time, smoothed_speed
@@ -474,7 +477,10 @@ def _prepare_whisper_model(
             if progress_callback:
                 with aggregate_lock:
                     aggregate_positions[id(self)] = int(self.n)
-                    downloaded = sum(aggregate_positions.values())
+                    # Hugging Face/Xet exposes both network-transfer and file-rebuild
+                    # bars for the same bytes. The largest global counter is the real
+                    # user-facing download position; summing would double-count it.
+                    downloaded = max(aggregate_positions.values(), default=0)
                 now = time.monotonic()
                 elapsed = max(0.001, now - previous_report_time)
                 current_speed = max(0, downloaded - previous_report_bytes) / elapsed

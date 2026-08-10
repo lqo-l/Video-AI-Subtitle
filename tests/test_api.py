@@ -136,6 +136,25 @@ def test_cuda_runtime_endpoints(monkeypatch):
     assert test_client.post("/cuda/install").json()["valid"] is True
 
 
+def test_open_resource_folders_use_resolved_status_paths(monkeypatch, tmp_path):
+    # Moon Add: folder actions resolve semantic resources server-side.
+    from service.app.models import ModelStatus
+
+    opened = []
+    monkeypatch.setattr(main.os, "startfile", lambda path: opened.append(path), raising=False)
+    monkeypatch.setattr(main, "get_model_status", lambda model, path: ModelStatus(
+        model=model or "small", valid=True, resolved_path=str(tmp_path), stage="模型可用",
+    ))
+    monkeypatch.setattr(main, "get_cuda_runtime_status", lambda: CudaRuntimeStatus(
+        installed=True, valid=True, path=str(tmp_path), stage="GPU 运行库已配置",
+    ))
+    client = TestClient(app)
+
+    assert client.post("/models/open", params={"model": "small"}).json() == {"ok": True}
+    assert client.post("/cuda/open").json() == {"ok": True}
+    assert opened == [str(tmp_path.resolve()), str(tmp_path.resolve())]
+
+
 def test_whisper_defaults_to_cpu():
     assert ServiceConfig().device == "cpu"
 

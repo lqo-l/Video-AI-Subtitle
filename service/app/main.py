@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
@@ -124,6 +126,25 @@ def model_download_cancel():
     return cancel_model_download()
 
 
+def _open_local_directory(path_value: str, label: str) -> dict[str, bool]:
+    # Moon Add: the UI chooses a semantic resource; it cannot pass an arbitrary path.
+    path = Path(path_value).resolve() if path_value else None
+    if not path or not path.is_dir():
+        raise HTTPException(404, f"{label}目录不存在")
+    if not hasattr(os, "startfile"):
+        raise HTTPException(501, "当前系统不支持打开文件夹")
+    os.startfile(str(path))
+    return {"ok": True}
+
+
+@app.post("/models/open")
+def model_open(model: str | None = None, model_path: str | None = None):
+    status = get_model_status(model, model_path)
+    if not status.valid:
+        raise HTTPException(409, "当前模型尚不可用")
+    return _open_local_directory(status.resolved_path, "模型")
+
+
 @app.get("/cuda/status", response_model=CudaRuntimeStatus)
 def cuda_status():
     return get_cuda_runtime_status()
@@ -132,6 +153,14 @@ def cuda_status():
 @app.post("/cuda/install", response_model=CudaRuntimeStatus)
 async def cuda_install():
     return start_cuda_runtime_install()
+
+
+@app.post("/cuda/open")
+def cuda_open():
+    status = get_cuda_runtime_status()
+    if not status.valid:
+        raise HTTPException(409, "GPU 运行库尚未配置")
+    return _open_local_directory(status.path, "GPU 运行库")
 # Moon End
 
 

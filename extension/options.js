@@ -15,19 +15,17 @@ async function request(path,options={}){const response=await fetch(`${API}${path
 function renderModel(data,query=modelQuery()){
   const modelName=`Whisper ${data.model||whisper_model.value} 模型`;
   const running=data.state==="running";
-  const stageText=running
-    ? (data.stage==="正在下载模型"?`正在下载 ${modelName}`:data.stage==="正在连接模型仓库"?`正在连接下载源 · ${modelName}`:`${data.stage} · ${modelName}`)
-    : (data.valid?`${modelName}可用`:data.stage==="尚未安装"?`${modelName}：本机尚未安装`:data.stage==="模型未完整安装"?`${modelName}：本机文件不完整`:`${modelName}：${data.stage}`);
-  model_stage.textContent=stageText+(data.source?` · ${data.source}`:"");
-  model_percent.textContent=`${data.progress||0}%`;
+  model_state.textContent=running?`${data.progress||0}%`:data.valid?"✓ 可用":data.state==="failed"?"检查失败":"未安装";
+  model_state.classList.toggle("ready",data.valid&&!running);
+  model_state.classList.toggle("failed",data.state==="failed");
+  model_progress.hidden=!running;
   model_bar.style.width=`${data.progress||0}%`;
-  model_downloaded.textContent=humanSize(data.downloaded);
-  model_total.textContent=data.total?humanSize(data.total):"等待获取";
-  model_speed.textContent=`${humanSize(data.speed)}/s`;
   const missing=data.missing_files?.length?`缺少：${data.missing_files.join("、")}`:"";
   const reusable=(data.local_models||[]).filter(item=>item.valid&&item.model!==data.model).map(item=>`${item.model}（${humanSize(item.size)}）`).join("、");
-  const location=data.resolved_path||data.configured_path||(running?"正在获取文件大小和下载信息…":`本机未安装 ${modelName}`);
-  model_detail.textContent=[location,missing,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
+  const transfer=running?`已下载 ${humanSize(data.downloaded)} / ${data.total?humanSize(data.total):"等待获取"} · ${humanSize(data.speed)}/s`:"";
+  const status=running?`${data.stage}${data.source?` · ${data.source}`:""}`:data.valid?`${data.model} 模型已安装并可用`:data.stage==="模型未完整安装"?`${data.model} 模型文件不完整`:`本机未安装 ${modelName}`;
+  model_detail.textContent=[status,transfer,missing,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
+  open_model.disabled=running||!data.valid||!data.resolved_path;
   check_model.disabled=running;
   download_model.disabled=running;
   download_model.textContent=running?"正在下载…":"下载 / 继续下载";
@@ -38,20 +36,22 @@ function modelQuery(){return new URLSearchParams({model:whisper_model.value,mode
 async function checkModel({quiet=false,query=modelQuery()}={}){
   if(modelRequestActive)return;
   modelRequestActive=true;
-  if(!quiet){check_model.disabled=true;model_stage.textContent=`正在检查 ${whisper_model.value}…`;model_detail.textContent="正在读取模型目录和运行设备";}
+  if(!quiet){check_model.disabled=true;model_state.textContent="检查中…";model_state.classList.remove("ready","failed");model_detail.textContent=`正在检查 Whisper ${whisper_model.value} 模型`;}
   try{await ensureService();renderModel(await request(`/models/status?${query}`),query);}
-  catch(error){clearTimeout(modelPoll);model_stage.textContent=`检查失败：${error.message}`;check_model.disabled=false;download_model.disabled=false;download_model.textContent="下载 / 继续下载";}
+  catch(error){clearTimeout(modelPoll);model_state.textContent="检查失败";model_state.classList.add("failed");model_detail.textContent=error.message;check_model.disabled=false;download_model.disabled=false;download_model.textContent="下载 / 继续下载";}
   finally{modelRequestActive=false;}
 }
 function renderCuda(data){
-  cuda_stage.textContent=data.stage+(data.component?` · ${data.component}`:"");
-  cuda_percent.textContent=`${data.progress||0}%`;
-  cuda_bar.style.width=`${data.progress||0}%`;
-  cuda_downloaded.textContent=humanSize(data.downloaded);
-  cuda_total.textContent=data.total?humanSize(data.total):"等待获取";
-  cuda_speed.textContent=`${humanSize(data.speed)}/s`;
-  cuda_detail.textContent=[data.path,data.error].filter(Boolean).join(" · ")||"默认使用 CPU。主动安装约需下载 1.37 GB。";
   const running=data.state==="running";
+  cuda_state.textContent=running?`${data.progress||0}%`:data.valid?"✓ 已配置":data.state==="failed"?"配置失败":"未配置";
+  cuda_state.classList.toggle("ready",data.valid&&!running);
+  cuda_state.classList.toggle("failed",data.state==="failed");
+  cuda_progress.hidden=!running;
+  cuda_bar.style.width=`${data.progress||0}%`;
+  const transfer=running?`已下载 ${humanSize(data.downloaded)} / ${data.total?humanSize(data.total):"等待获取"} · ${humanSize(data.speed)}/s`:"";
+  const status=running?`${data.stage}${data.component&&data.component!==data.stage?` · ${data.component}`:""}`:data.valid?"GPU 运行库已配置并通过加载检查":"默认使用 CPU，可按需配置 GPU 加速";
+  cuda_detail.textContent=[status,transfer,data.error].filter(Boolean).join(" · ");
+  open_cuda.disabled=running||!data.path;
   check_cuda.disabled=running;
   install_cuda.disabled=running||data.valid;
   install_cuda.textContent=data.valid?"GPU 已配置":running?"正在配置…":"一键配置 GPU";
@@ -61,9 +61,9 @@ function renderCuda(data){
 async function checkCuda({quiet=false}={}){
   if(cudaRequestActive)return;
   cudaRequestActive=true;
-  if(!quiet){check_cuda.disabled=true;cuda_stage.textContent="正在检查 GPU 环境…";cuda_detail.textContent="正在检查显卡、cuBLAS 与 cuDNN";}
+  if(!quiet){check_cuda.disabled=true;cuda_state.textContent="检查中…";cuda_state.classList.remove("ready","failed");cuda_detail.textContent="正在检查显卡、cuBLAS 与 cuDNN";}
   try{await ensureService();renderCuda(await request("/cuda/status"));}
-  catch(error){clearTimeout(cudaPoll);cuda_stage.textContent=`检查失败：${error.message}`;check_cuda.disabled=false;}
+  catch(error){clearTimeout(cudaPoll);cuda_state.textContent="检查失败";cuda_state.classList.add("failed");cuda_detail.textContent=error.message;check_cuda.disabled=false;}
   finally{cudaRequestActive=false;}
 }
 
@@ -80,12 +80,14 @@ api_key.onfocus=()=>{if(api_key.value===KEY_PLACEHOLDER)api_key.value="";};
 api_key.onblur=()=>{if(!api_key.value&&api_key.dataset.configured==="true")api_key.value=KEY_PLACEHOLDER;};
 panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
 check_model.onclick=checkModel;
-download_model.onclick=async()=>{const query=modelQuery();try{download_model.disabled=true;renderModel(await request(`/models/download?${query}`,{method:"POST"}),query);}catch(error){model_stage.textContent=`下载失败：${error.message}`;download_model.disabled=false;}};
+download_model.onclick=async()=>{const query=modelQuery();try{download_model.disabled=true;renderModel(await request(`/models/download?${query}`,{method:"POST"}),query);}catch(error){model_state.textContent="下载失败";model_state.classList.add("failed");model_detail.textContent=error.message;download_model.disabled=false;}};
+open_model.onclick=async()=>{try{await request(`/models/open?${modelQuery()}`,{method:"POST"});}catch(error){model_detail.textContent=`无法打开模型文件夹：${error.message}`;}};
 check_cuda.onclick=checkCuda;
 install_cuda.onclick=async()=>{
   if(!confirm("将下载约 1.37 GB 的 NVIDIA cuBLAS、cuDNN 与 NVRTC 到插件虚拟环境。继续吗？"))return;
-  try{renderCuda(await request("/cuda/install",{method:"POST"}));}catch(error){cuda_stage.textContent=`配置失败：${error.message}`;}
+  try{renderCuda(await request("/cuda/install",{method:"POST"}));}catch(error){cuda_state.textContent="配置失败";cuda_state.classList.add("failed");cuda_detail.textContent=error.message;}
 };
+open_cuda.onclick=async()=>{try{await request("/cuda/open",{method:"POST"});}catch(error){cuda_detail.textContent=`无法打开运行库文件夹：${error.message}`;}};
 reset_translation.onclick=()=>{translation_model.value="deepseek-v4-flash";message.textContent="已恢复默认值，请点击保存设置";};
 window.addEventListener("beforeunload",()=>chrome.runtime.sendMessage({type:"release-service"}));
 form.onsubmit=async event=>{
