@@ -32,13 +32,13 @@
           <div class="status-line"><strong>Whisper 模型</strong><span id="model_state" class="status-value">尚未检查</span></div>
           <div id="model_progress" class="progress" hidden><i id="model_bar"></i></div>
           <div id="model_detail" class="path">保存设置后点击“检查模型”。</div>
-          <div class="actions"><button type="button" id="check_model" class="secondary">检查模型</button><button type="button" id="open_model" class="secondary" disabled>打开模型文件夹</button><button type="button" id="download_model">下载 / 继续下载</button></div>
+          <div class="actions"><button type="button" id="check_model" class="secondary">检查模型</button><button type="button" id="open_model" class="secondary" disabled>打开模型文件夹</button><button type="button" id="download_model">下载 / 继续下载</button><button type="button" id="cancel_model_download" class="secondary cancel-download" hidden>取消下载</button></div>
         </div>
         <div class="wide model-status">
           <div class="status-line"><strong>GPU 运行库</strong><span id="cuda_state" class="status-value">尚未检查</span></div>
           <div id="cuda_progress" class="progress" hidden><i id="cuda_bar"></i></div>
           <div id="cuda_detail" class="path">默认使用 CPU。主动安装约需下载 1.37 GB，不修改系统 CUDA 或环境变量。</div>
-          <div class="actions"><button type="button" id="check_cuda" class="secondary">检查 GPU 环境</button><button type="button" id="open_cuda" class="secondary" disabled>打开运行库文件夹</button><button type="button" id="install_cuda">一键配置 GPU</button></div>
+          <div class="actions"><button type="button" id="check_cuda" class="secondary">检查 GPU 环境</button><button type="button" id="open_cuda" class="secondary" disabled>打开运行库文件夹</button><button type="button" id="install_cuda">一键配置 GPU</button><button type="button" id="cancel_cuda_download" class="secondary cancel-download" hidden>取消下载</button></div>
         </div>
       </div>
     </details>

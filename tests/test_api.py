@@ -131,9 +131,13 @@ def test_cuda_runtime_endpoints(monkeypatch):
     )
     monkeypatch.setattr(main, "get_cuda_runtime_status", lambda: status)
     monkeypatch.setattr(main, "start_cuda_runtime_install", lambda: installed)
+    monkeypatch.setattr(main, "cancel_cuda_runtime_install", lambda: status.model_copy(
+        update={"state": "cancelled", "stage": "下载已取消，可稍后继续"}
+    ))
     test_client = TestClient(app)
     assert test_client.get("/cuda/status").json()["valid"] is False
     assert test_client.post("/cuda/install").json()["valid"] is True
+    assert test_client.post("/cuda/install/cancel").json()["state"] == "cancelled"
 
 
 def test_open_resource_folders_use_resolved_status_paths(monkeypatch, tmp_path):

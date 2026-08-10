@@ -23,12 +23,14 @@ function renderModel(data,query=modelQuery()){
   const missing=data.missing_files?.length?`缺少：${data.missing_files.join("、")}`:"";
   const reusable=(data.local_models||[]).filter(item=>item.valid&&item.model!==data.model).map(item=>`${item.model}（${humanSize(item.size)}）`).join("、");
   const transfer=running?`已下载 ${humanSize(data.downloaded)} / ${data.total?humanSize(data.total):"等待获取"} · ${humanSize(data.speed)}/s`:"";
-  const status=running?`${data.stage}${data.source?` · ${data.source}`:""}`:data.valid?`${data.model} 模型已安装并可用`:data.stage==="模型未完整安装"?`${data.model} 模型文件不完整`:`本机未安装 ${modelName}`;
+  const status=running?`${data.stage}${data.source?` · ${data.source}`:""}`:data.state==="cancelled"?data.stage:data.valid?`${data.model} 模型已安装并可用`:data.stage==="模型未完整安装"?`${data.model} 模型文件不完整`:`本机未安装 ${modelName}`;
   model_detail.textContent=[status,transfer,missing,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
   open_model.disabled=running||!data.valid||!data.resolved_path;
   check_model.disabled=running;
   download_model.disabled=running;
   download_model.textContent=running?"正在下载…":"下载 / 继续下载";
+  cancel_model_download.hidden=!running;
+  cancel_model_download.disabled=false;
   clearTimeout(modelPoll);
   if(running)modelPoll=setTimeout(()=>checkModel({quiet:true,query}),700);
 }
@@ -50,12 +52,15 @@ function renderCuda(data){
   cuda_progress.hidden=!running;
   cuda_bar.style.width=`${data.progress||0}%`;
   const transfer=running?`已下载 ${humanSize(data.downloaded)} / ${data.total?humanSize(data.total):"等待获取"} · ${humanSize(data.speed)}/s`:"";
-  const status=running?`${data.stage}${data.component&&data.component!==data.stage?` · ${data.component}`:""}`:data.valid?"GPU 运行库已配置并通过加载检查":"默认使用 CPU，可按需配置 GPU 加速";
+  const status=running?`${data.stage}${data.component&&data.component!==data.stage?` · ${data.component}`:""}`:data.state==="cancelled"?data.stage:data.valid?"GPU 运行库已配置并通过加载检查":"默认使用 CPU，可按需配置 GPU 加速";
   cuda_detail.textContent=[status,transfer,data.error].filter(Boolean).join(" · ");
   open_cuda.disabled=running||!data.path;
   check_cuda.disabled=running;
   install_cuda.disabled=running||data.valid;
   install_cuda.textContent=data.valid?"GPU 已配置":running?"正在配置…":"一键配置 GPU";
+  const downloading=running&&(!data.total||data.downloaded<data.total);
+  cancel_cuda_download.hidden=!downloading;
+  cancel_cuda_download.disabled=false;
   clearTimeout(cudaPoll);
   if(running)cudaPoll=setTimeout(()=>checkCuda({quiet:true}),700);
 }
@@ -83,12 +88,14 @@ api_key.onblur=()=>{if(!api_key.value&&api_key.dataset.configured==="true")api_k
 panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
 check_model.onclick=()=>checkModel();
 download_model.onclick=async()=>{const query=modelQuery();try{download_model.disabled=true;renderModel(await request(`/models/download?${query}`,{method:"POST"}),query);}catch(error){model_state.textContent="下载失败";model_state.classList.add("failed");model_detail.textContent=error.message;download_model.disabled=false;}};
+cancel_model_download.onclick=async()=>{try{cancel_model_download.disabled=true;renderModel(await request("/models/download/cancel",{method:"POST"}));}catch(error){model_detail.textContent=`无法取消下载：${error.message}`;cancel_model_download.disabled=false;}};
 open_model.onclick=async()=>{try{await request(`/models/open?${modelQuery()}`,{method:"POST"});}catch(error){model_detail.textContent=`无法打开模型文件夹：${error.message}`;}};
 check_cuda.onclick=()=>checkCuda();
 install_cuda.onclick=async()=>{
   if(!confirm("将下载约 1.37 GB 的 NVIDIA cuBLAS、cuDNN 与 NVRTC 到插件虚拟环境。继续吗？"))return;
   try{renderCuda(await request("/cuda/install",{method:"POST"}));}catch(error){cuda_state.textContent="配置失败";cuda_state.classList.add("failed");cuda_detail.textContent=error.message;}
 };
+cancel_cuda_download.onclick=async()=>{try{cancel_cuda_download.disabled=true;renderCuda(await request("/cuda/install/cancel",{method:"POST"}));}catch(error){cuda_detail.textContent=`无法取消下载：${error.message}`;cancel_cuda_download.disabled=false;}};
 open_cuda.onclick=async()=>{try{await request("/cuda/open",{method:"POST"});}catch(error){cuda_detail.textContent=`无法打开运行库文件夹：${error.message}`;}};
 reset_translation.onclick=()=>{translation_model.value="deepseek-v4-flash";message.textContent="已恢复默认值，请点击保存设置";};
 window.addEventListener("beforeunload",()=>chrome.runtime.sendMessage({type:"release-service"}));

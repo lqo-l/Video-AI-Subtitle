@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -29,8 +30,10 @@ JOB_TASKS: dict[str, asyncio.Task] = {}  # Moon Add
 JOB_CONTROLS: dict[str, "JobControl"] = {}  # Moon Add
 MODEL_DOWNLOAD: ModelStatus | None = None  # Moon Add
 MODEL_DOWNLOAD_TASK: asyncio.Task | None = None  # Moon Add
+MODEL_DOWNLOAD_CANCEL = threading.Event()  # Moon Add
 CUDA_INSTALL: CudaRuntimeStatus | None = None  # Moon Add
 CUDA_INSTALL_TASK: asyncio.Task | None = None  # Moon Add
+CUDA_INSTALL_CANCEL = threading.Event()  # Moon Add
 CUDA_DLL_HANDLES: list = []  # Moon Add: keep Windows DLL directory cookies alive.
 CUDA_DLL_PATHS: set[str] = set()  # Moon Add
 CUDA_PRELOADED: list = []  # Moon Add: keep explicit WinDLL module handles alive.
@@ -45,6 +48,15 @@ WHISPER_MODEL_ENDPOINTS = (
     ("HF 镜像", "https://hf-mirror.com"),
     ("Hugging Face 官方源", "https://huggingface.co"),
 )  # Moon Add: prefer the mainland-friendly mirror and fall back automatically.
+
+
+class DownloadCancelled(Exception):
+    """Moon Add: cooperative stop signal raised inside blocking download workers."""
+
+
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event and cancel_event.is_set():
+        raise DownloadCancelled()
 
 
 def _configure_private_cuda_runtime() -> list[str]:
@@ -295,6 +307,7 @@ def _prepare_whisper_model(
     progress_callback: Callable[[int, int, int, float, str], None] | None = None,
     model_path: str = "",
     download_source: str = "auto",
+    cancel_event: threading.Event | None = None,
 ) -> str:
     """Download selected model once and report byte-based first-run progress."""
     # Moon Begin
@@ -302,6 +315,7 @@ def _prepare_whisper_model(
     from huggingface_hub.constants import HF_HUB_CACHE
     from tqdm.auto import tqdm
 
+    _raise_if_cancelled(cancel_event)
     model_name = model_name.removesuffix(".en")
     repo_id = model_name if "/" in model_name else f"Systran/faster-whisper-{model_name}"
     # Moon Add: an explicitly configured local model always wins and never contacts HF.
@@ -361,6 +375,7 @@ def _prepare_whisper_model(
         probe = None
         source_name = ""
         for candidate_source, endpoint in model_endpoints:
+            _raise_if_cancelled(cancel_event)
             candidate_url = f"{endpoint}/{repo_id}/resolve/main/model.bin"
             for _ in range(2):
                 try:
@@ -400,6 +415,10 @@ def _prepare_whisper_model(
         previous_time = time.monotonic()
         smoothed_speed = 0.0
         while process.poll() is None:
+            if cancel_event and cancel_event.is_set():
+                process.terminate()
+                process.wait(timeout=5)
+                raise DownloadCancelled()
             downloaded = partial_model.stat().st_size
             now = time.monotonic()
             elapsed = max(0.001, now - previous_time)
@@ -443,6 +462,7 @@ def _prepare_whisper_model(
         """Resolve selected file sizes before transfer so total bytes are visible immediately."""
         # Moon Add
         import fnmatch
+        _raise_if_cancelled(cancel_event)
         info = HfApi(endpoint=endpoint).model_info(repo_id, files_metadata=True, timeout=20)
         return sum(
             int(item.size or 0) for item in info.siblings
@@ -473,6 +493,7 @@ def _prepare_whisper_model(
 
         def update(self, amount=1):
             nonlocal reported_percent, previous_report_bytes, previous_report_time, smoothed_speed
+            _raise_if_cancelled(cancel_event)
             result = super().update(amount)
             if progress_callback:
                 with aggregate_lock:
@@ -504,10 +525,12 @@ def _prepare_whisper_model(
     if legacy_model_dir.exists() and any(legacy_model_dir.iterdir()):
         download_options["local_dir"] = legacy_model_dir
     try:
+        _raise_if_cancelled(cancel_event)
         model_path = snapshot_download(
             repo_id, endpoint=selected_endpoint[1], **download_options
         )
     except Exception:
+        _raise_if_cancelled(cancel_event)
         # Moon Add: mirror outages must not make first-time setup impossible.
         if len(model_endpoints) < 2 or selected_endpoint == model_endpoints[1]:
             raise
@@ -998,6 +1021,7 @@ def start_model_download(
         model=model, configured_path=configured_path,
         state="running", stage="正在连接模型仓库",
     )
+    MODEL_DOWNLOAD_CANCEL.clear()
 
     async def run() -> None:
         global MODEL_DOWNLOAD
@@ -1011,11 +1035,13 @@ def start_model_download(
         try:
             path = await asyncio.to_thread(
                 _prepare_whisper_model, model, progress, configured_path, source,
+                MODEL_DOWNLOAD_CANCEL,
             )
+            _raise_if_cancelled(MODEL_DOWNLOAD_CANCEL)
             MODEL_DOWNLOAD.resolved_path = path
             MODEL_DOWNLOAD.installed = MODEL_DOWNLOAD.valid = True
             MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage, MODEL_DOWNLOAD.progress = "completed", "模型可用", 100
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, DownloadCancelled):
             MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage = "cancelled", "下载已取消，可稍后续传"
         except Exception as exc:
             MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage, MODEL_DOWNLOAD.error = "failed", "模型下载失败", str(exc)
@@ -1024,8 +1050,8 @@ def start_model_download(
 
 
 def cancel_model_download() -> ModelStatus:
-    if MODEL_DOWNLOAD_TASK and not MODEL_DOWNLOAD_TASK.done():
-        MODEL_DOWNLOAD_TASK.cancel()
+    # Moon Modified: signal the blocking worker instead of only cancelling its asyncio waiter.
+    MODEL_DOWNLOAD_CANCEL.set()
     if MODEL_DOWNLOAD:
         MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage = "cancelled", "下载已取消，可稍后续传"
     return MODEL_DOWNLOAD or inspect_whisper_model()
@@ -1060,7 +1086,10 @@ def get_cuda_runtime_status() -> CudaRuntimeStatus:
     return inspect_cuda_runtime()
 
 
-def _install_cuda_runtime(progress: Callable[[str, int, int, float], None]) -> None:
+def _install_cuda_runtime(
+    progress: Callable[[str, int, int, float], None],
+    cancel_event: threading.Event | None = None,
+) -> None:
     import httpx
 
     download_dir = CACHE_DIR.parent / "cuda-runtime-downloads"
@@ -1069,6 +1098,7 @@ def _install_cuda_runtime(progress: Callable[[str, int, int, float], None]) -> N
     package_files: list[tuple[str, str, int, Path]] = []
     with httpx.Client(follow_redirects=True, timeout=30) as client:
         for package, label in CUDA_PACKAGES:
+            _raise_if_cancelled(cancel_event)
             metadata = client.get(f"https://pypi.org/pypi/{package}/json")
             metadata.raise_for_status()
             data = metadata.json()
@@ -1106,6 +1136,7 @@ def _install_cuda_runtime(progress: Callable[[str, int, int, float], None]) -> N
                 with destination.open(mode) as output:
                     downloaded = existing
                     for chunk in response.iter_bytes(1024 * 1024):
+                        _raise_if_cancelled(cancel_event)
                         output.write(chunk)
                         downloaded += len(chunk)
                         package_downloaded[package_index] = downloaded
@@ -1117,6 +1148,7 @@ def _install_cuda_runtime(progress: Callable[[str, int, int, float], None]) -> N
         wheels.append(destination)
         progress(label, sum(package_downloaded), total_bytes, 0)
 
+    _raise_if_cancelled(cancel_event)
     progress("正在安装本机运行库", total_bytes, total_bytes, 0)
     process = subprocess.run(
         [sys.executable, "-m", "pip", "install", "--no-index", "--force-reinstall", *map(str, wheels)],
@@ -1138,6 +1170,7 @@ def start_cuda_runtime_install() -> CudaRuntimeStatus:
     if CUDA_INSTALL_TASK and not CUDA_INSTALL_TASK.done():
         return CUDA_INSTALL
     CUDA_INSTALL = CudaRuntimeStatus(state="running", stage="正在获取运行库信息")
+    CUDA_INSTALL_CANCEL.clear()
 
     async def run() -> None:
         global CUDA_INSTALL
@@ -1149,11 +1182,24 @@ def start_cuda_runtime_install() -> CudaRuntimeStatus:
             CUDA_INSTALL.speed = speed
             CUDA_INSTALL.progress = min(99, int(downloaded * 100 / total)) if total else 0
         try:
-            await asyncio.to_thread(_install_cuda_runtime, publish)
+            await asyncio.to_thread(_install_cuda_runtime, publish, CUDA_INSTALL_CANCEL)
+            _raise_if_cancelled(CUDA_INSTALL_CANCEL)
             CUDA_INSTALL = inspect_cuda_runtime()
+        except DownloadCancelled:
+            CUDA_INSTALL.state, CUDA_INSTALL.stage = "cancelled", "下载已取消，可稍后继续"
         except Exception as exc:
             CUDA_INSTALL.state, CUDA_INSTALL.stage, CUDA_INSTALL.error = "failed", "GPU 运行库配置失败", str(exc)
 
     CUDA_INSTALL_TASK = asyncio.create_task(run())
     return CUDA_INSTALL
+
+
+def cancel_cuda_runtime_install() -> CudaRuntimeStatus:
+    # Moon Add: downloaded wheel fragments remain available for HTTP range resume.
+    CUDA_INSTALL_CANCEL.set()
+    if CUDA_INSTALL and CUDA_INSTALL.state == "running" and (
+        not CUDA_INSTALL.total or CUDA_INSTALL.downloaded < CUDA_INSTALL.total
+    ):
+        CUDA_INSTALL.state, CUDA_INSTALL.stage = "cancelled", "下载已取消，可稍后继续"
+    return CUDA_INSTALL or inspect_cuda_runtime()
 # Moon End

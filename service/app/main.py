@@ -13,7 +13,7 @@ from fastapi.responses import PlainTextResponse
 from .config import CACHE_DIR, ensure_dirs, load_config, save_config
 from .models import CudaRuntimeStatus, JobView, ModelStatus, PublicConfig, ServiceConfig, VideoRequest
 from .pipeline import (
-    JOBS, cancel_job, cancel_model_download, create_job, get_cuda_runtime_status,
+    JOBS, cancel_cuda_runtime_install, cancel_job, cancel_model_download, create_job, get_cuda_runtime_status,
     get_model_status, pause_job, resume_job, start_cuda_runtime_install, start_model_download,
 )
 
@@ -249,6 +249,12 @@ def cuda_status():
 @app.post("/cuda/install", response_model=CudaRuntimeStatus)
 async def cuda_install():
     return start_cuda_runtime_install()
+
+
+@app.post("/cuda/install/cancel", response_model=CudaRuntimeStatus)
+def cuda_install_cancel():
+    # Moon Add: cancellation preserves completed wheel bytes for a later resume.
+    return cancel_cuda_runtime_install()
 
 
 @app.post("/cuda/open")
