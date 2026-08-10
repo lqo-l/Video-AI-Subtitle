@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.13.12`
+Current version: `v0.14.0`
 
 </div>
 

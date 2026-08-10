@@ -13,21 +13,25 @@ const humanSize=value=>{const amount=Number(value)||0;if(amount>=1024**3)return 
 async function ensureService(){if(serviceReady){try{await request("/health");return;}catch(_){serviceReady=false;}}const response=await chrome.runtime.sendMessage({type:"ensure-service"});if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));serviceReady=true;}
 async function request(path,options={}){const response=await fetch(`${API}${path}`,options);if(!response.ok)throw new Error((await response.json().catch(()=>null))?.detail||`服务错误 ${response.status}`);return response.json();}
 function renderModel(data,query=modelQuery()){
-  const modelName=`Whisper ${data.model||whisper_model.value} 模型`;
   const running=data.state==="running";
-  model_state.textContent=running?`${data.progress||0}%`:data.valid?"✓ 可用":data.state==="failed"?"检查失败":"未安装";
+  model_state.textContent=running?`${data.progress||0}%`:data.valid?"✓ 可用":data.state==="failed"?"检查失败":data.state==="cancelled"?"已取消":"未安装";
   model_state.classList.toggle("ready",data.valid&&!running);
   model_state.classList.toggle("failed",data.state==="failed");
+  // Moon Add: surface local availability and size where the model decision is made.
+  const localModels=new Map((data.local_models||[]).filter(item=>item.valid).map(item=>[item.model,item]));
+  if(data.valid&&!localModels.has(data.model))localModels.set(data.model,{size:data.size,valid:true});
+  [...whisper_model.options].forEach(option=>{const local=localModels.get(option.value);option.textContent=local?`${option.value} · 已安装 ${humanSize(local.size)}`:option.value;});
   model_progress.hidden=!running;
   model_bar.style.width=`${data.progress||0}%`;
   const missing=data.missing_files?.length?`缺少：${data.missing_files.join("、")}`:"";
-  const reusable=(data.local_models||[]).filter(item=>item.valid&&item.model!==data.model).map(item=>`${item.model}（${humanSize(item.size)}）`).join("、");
   const transfer=running?`已下载 ${humanSize(data.downloaded)} / ${data.total?humanSize(data.total):"等待获取"} · ${humanSize(data.speed)}/s`:"";
-  const status=running?`${data.stage}${data.source?` · ${data.source}`:""}`:data.state==="cancelled"?data.stage:data.valid?`${data.model} 模型已安装并可用`:data.stage==="模型未完整安装"?`${data.model} 模型文件不完整`:`本机未安装 ${modelName}`;
-  model_detail.textContent=[status,transfer,missing,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
+  const status=running?`${data.stage}${data.source?` · ${data.source}`:""}`:data.state==="cancelled"?data.stage:data.state==="failed"?data.error:data.stage==="模型未完整安装"?`${data.model} 模型文件不完整`:"";
+  model_detail.textContent=[status,transfer,missing].filter(Boolean).join(" · ");
+  model_detail.hidden=!model_detail.textContent;
   open_model.disabled=running||!data.valid||!data.resolved_path;
   check_model.disabled=running;
   download_model.disabled=running;
+  download_model.hidden=data.valid&&!running;
   download_model.textContent=running?"正在下载…":"下载 / 继续下载";
   cancel_model_download.hidden=!running;
   cancel_model_download.disabled=false;
@@ -46,17 +50,19 @@ async function checkModel({quiet=false,query=modelQuery()}={}){
 }
 function renderCuda(data){
   const running=data.state==="running";
-  cuda_state.textContent=running?`${data.progress||0}%`:data.valid?"✓ 已配置":data.state==="failed"?"配置失败":"未配置";
+  cuda_state.textContent=running?`${data.progress||0}%`:data.valid?"✓ 已配置":data.state==="failed"?"配置失败":data.state==="cancelled"?"已取消":"未配置";
   cuda_state.classList.toggle("ready",data.valid&&!running);
   cuda_state.classList.toggle("failed",data.state==="failed");
   cuda_progress.hidden=!running;
   cuda_bar.style.width=`${data.progress||0}%`;
   const transfer=running?`已下载 ${humanSize(data.downloaded)} / ${data.total?humanSize(data.total):"等待获取"} · ${humanSize(data.speed)}/s`:"";
-  const status=running?`${data.stage}${data.component&&data.component!==data.stage?` · ${data.component}`:""}`:data.state==="cancelled"?data.stage:data.valid?"GPU 运行库已配置并通过加载检查":"默认使用 CPU，可按需配置 GPU 加速";
+  const status=running?`${data.stage}${data.component&&data.component!==data.stage?` · ${data.component}`:""}`:data.state==="cancelled"?data.stage:"";
   cuda_detail.textContent=[status,transfer,data.error].filter(Boolean).join(" · ");
+  cuda_detail.hidden=!cuda_detail.textContent;
   open_cuda.disabled=running||!data.path;
   check_cuda.disabled=running;
   install_cuda.disabled=running||data.valid;
+  install_cuda.hidden=data.valid&&!running;
   install_cuda.textContent=data.valid?"GPU 已配置":running?"正在配置…":"一键配置 GPU";
   const downloading=running&&(!data.total||data.downloaded<data.total);
   cancel_cuda_download.hidden=!downloading;
