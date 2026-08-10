@@ -8,7 +8,7 @@ let modelRequestActive=false;
 let cudaRequestActive=false;
 let serviceReady=false;
 const byId=id=>document.getElementById(id);
-const humanSize=value=>value?`${(value/1024/1024).toFixed(1)} MB`:"0 MB";
+const humanSize=value=>{const amount=Number(value)||0;if(amount>=1024**3)return `${(amount/1024**3).toFixed(2)} GB`;if(amount>=1024**2)return `${(amount/1024**2).toFixed(1)} MB`;if(amount>=1024)return `${(amount/1024).toFixed(1)} KB`;return `${Math.round(amount)} B`;};
 
 async function ensureService(){if(serviceReady){try{await request("/health");return;}catch(_){serviceReady=false;}}const response=await chrome.runtime.sendMessage({type:"ensure-service"});if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));serviceReady=true;}
 async function request(path,options={}){const response=await fetch(`${API}${path}`,options);if(!response.ok)throw new Error((await response.json().catch(()=>null))?.detail||`服务错误 ${response.status}`);return response.json();}
@@ -21,11 +21,13 @@ function renderModel(data,query=modelQuery()){
   model_stage.textContent=stageText+(data.source?` · ${data.source}`:"");
   model_percent.textContent=`${data.progress||0}%`;
   model_bar.style.width=`${data.progress||0}%`;
-  const transfer=data.total?`${humanSize(data.downloaded)} / ${humanSize(data.total)}${data.speed?` · ${humanSize(data.speed)}/s`:""}`:"";
+  model_downloaded.textContent=humanSize(data.downloaded);
+  model_total.textContent=data.total?humanSize(data.total):"等待获取";
+  model_speed.textContent=`${humanSize(data.speed)}/s`;
   const missing=data.missing_files?.length?`缺少：${data.missing_files.join("、")}`:"";
   const reusable=(data.local_models||[]).filter(item=>item.valid&&item.model!==data.model).map(item=>`${item.model}（${humanSize(item.size)}）`).join("、");
   const location=data.resolved_path||data.configured_path||(running?"正在获取文件大小和下载信息…":`本机未安装 ${modelName}`);
-  model_detail.textContent=[location,missing,transfer,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
+  model_detail.textContent=[location,missing,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
   check_model.disabled=running;
   download_model.disabled=running;
   download_model.textContent=running?"正在下载…":"下载 / 继续下载";
@@ -45,8 +47,10 @@ function renderCuda(data){
   cuda_stage.textContent=data.stage+(data.component?` · ${data.component}`:"");
   cuda_percent.textContent=`${data.progress||0}%`;
   cuda_bar.style.width=`${data.progress||0}%`;
-  const transfer=data.total?`${humanSize(data.downloaded)} / ${humanSize(data.total)}${data.speed?` · ${humanSize(data.speed)}/s`:""}`:"";
-  cuda_detail.textContent=[data.path,transfer,data.error].filter(Boolean).join(" · ")||"默认使用 CPU。主动安装约需下载 1.37 GB。";
+  cuda_downloaded.textContent=humanSize(data.downloaded);
+  cuda_total.textContent=data.total?humanSize(data.total):"等待获取";
+  cuda_speed.textContent=`${humanSize(data.speed)}/s`;
+  cuda_detail.textContent=[data.path,data.error].filter(Boolean).join(" · ")||"默认使用 CPU。主动安装约需下载 1.37 GB。";
   const running=data.state==="running";
   check_cuda.disabled=running;
   install_cuda.disabled=running||data.valid;

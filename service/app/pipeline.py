@@ -298,7 +298,7 @@ def _prepare_whisper_model(
 ) -> str:
     """Download selected model once and report byte-based first-run progress."""
     # Moon Begin
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import HfApi, snapshot_download
     from huggingface_hub.constants import HF_HUB_CACHE
     from tqdm.auto import tqdm
 
@@ -430,34 +430,67 @@ def _prepare_whisper_model(
         "tokenizer.json", "vocabulary.*",
     ]
     reported_percent = 0
-    active_source = model_endpoints[0][0]
+    selected_endpoint = model_endpoints[0]
+    active_source = selected_endpoint[0]
     progress_started = time.monotonic()
+    aggregate_positions: dict[int, int] = {}
+    aggregate_lock = __import__("threading").Lock()
+    previous_report_bytes = 0
+    previous_report_time = progress_started
+    smoothed_speed = 0.0
+
+    def fetch_download_total(endpoint: str) -> int:
+        """Resolve selected file sizes before transfer so total bytes are visible immediately."""
+        # Moon Add
+        import fnmatch
+        info = HfApi(endpoint=endpoint).model_info(repo_id, files_metadata=True, timeout=20)
+        return sum(
+            int(item.size or 0) for item in info.siblings
+            if any(fnmatch.fnmatch(item.rfilename, pattern) for pattern in allow_patterns)
+        )
+
+    try:
+        total_expected = fetch_download_total(selected_endpoint[1])
+    except Exception:
+        if len(model_endpoints) < 2:
+            raise
+        selected_endpoint = model_endpoints[1]
+        active_source = selected_endpoint[0]
+        total_expected = fetch_download_total(selected_endpoint[1])
+    if progress_callback:
+        progress_callback(0, 0, total_expected, 0, active_source)
 
     class DownloadProgress(tqdm):
         """Forward Hugging Face's aggregate byte progress to the job view."""
         def __init__(self, *args, **kwargs):
             kwargs["disable"] = True
             super().__init__(*args, **kwargs)
+            with aggregate_lock:
+                aggregate_positions[id(self)] = int(self.n)
 
         def update(self, amount=1):
-            nonlocal reported_percent
+            nonlocal reported_percent, previous_report_bytes, previous_report_time, smoothed_speed
             result = super().update(amount)
-            if progress_callback and self.total:
-                percent = min(99, int(self.n * 100 / self.total))
-                if percent > reported_percent:
-                    reported_percent = percent
-                    elapsed = max(0.001, time.monotonic() - progress_started)
-                    progress_callback(
-                        percent, int(self.n), int(self.total), self.n / elapsed,
-                        active_source,
-                    )
+            if progress_callback:
+                with aggregate_lock:
+                    aggregate_positions[id(self)] = int(self.n)
+                    downloaded = sum(aggregate_positions.values())
+                now = time.monotonic()
+                elapsed = max(0.001, now - previous_report_time)
+                current_speed = max(0, downloaded - previous_report_bytes) / elapsed
+                if current_speed:
+                    smoothed_speed = current_speed if not smoothed_speed else smoothed_speed * .7 + current_speed * .3
+                percent = min(99, int(downloaded * 100 / total_expected)) if total_expected else 0
+                # Moon Modified: byte/speed updates must not wait for the next whole percent.
+                if now - previous_report_time >= .2 or percent > reported_percent:
+                    reported_percent = max(reported_percent, percent)
+                    previous_report_bytes, previous_report_time = downloaded, now
+                    progress_callback(percent, downloaded, total_expected, smoothed_speed, active_source)
             return result
 
     # Moon Modified: new downloads use faster-whisper's standard cache. If the
     # previous release already wrote a partial legacy copy, resume that copy so
     # the user does not lose hundreds of megabytes of download progress.
-    if progress_callback:
-        progress_callback(0, 0, 0, 0, active_source)
     download_options = {
         "allow_patterns": allow_patterns,
         "tqdm_class": DownloadProgress,
@@ -466,17 +499,24 @@ def _prepare_whisper_model(
         download_options["local_dir"] = legacy_model_dir
     try:
         model_path = snapshot_download(
-            repo_id, endpoint=model_endpoints[0][1], **download_options
+            repo_id, endpoint=selected_endpoint[1], **download_options
         )
     except Exception:
         # Moon Add: mirror outages must not make first-time setup impossible.
-        if len(model_endpoints) < 2:
+        if len(model_endpoints) < 2 or selected_endpoint == model_endpoints[1]:
             raise
-        active_source = model_endpoints[1][0]
+        selected_endpoint = model_endpoints[1]
+        active_source = selected_endpoint[0]
+        total_expected = fetch_download_total(selected_endpoint[1])
+        aggregate_positions.clear()
+        reported_percent = 0
+        previous_report_bytes = 0
+        previous_report_time = time.monotonic()
+        smoothed_speed = 0.0
         if progress_callback:
-            progress_callback(0, 0, 0, 0, active_source)
+            progress_callback(0, 0, total_expected, 0, active_source)
         model_path = snapshot_download(
-            repo_id, endpoint=model_endpoints[1][1], **download_options
+            repo_id, endpoint=selected_endpoint[1], **download_options
         )
     if progress_callback:
         model_file = Path(model_path) / "model.bin"
@@ -1036,12 +1076,18 @@ def _install_cuda_runtime(progress: Callable[[str, int, int, float], None]) -> N
             )
 
     total_bytes = sum(item[2] for item in package_files)
-    completed_bytes = 0
-    for label, url, expected, destination in package_files:
+    # Moon Add: publish total size before the first response body chunk arrives.
+    package_downloaded = [
+        min(expected, destination.stat().st_size) if destination.exists() else 0
+        for _, _, expected, destination in package_files
+    ]
+    progress("准备下载 GPU 运行库", sum(package_downloaded), total_bytes, 0)
+    for package_index, (label, url, expected, destination) in enumerate(package_files):
         existing = destination.stat().st_size if destination.exists() else 0
         if existing > expected:
             destination.unlink()
             existing = 0
+            package_downloaded[package_index] = 0
         started = time.monotonic()
         if existing < expected:
             headers = {"Range": f"bytes={existing}-"} if existing else {}
@@ -1056,13 +1102,14 @@ def _install_cuda_runtime(progress: Callable[[str, int, int, float], None]) -> N
                     for chunk in response.iter_bytes(1024 * 1024):
                         output.write(chunk)
                         downloaded += len(chunk)
+                        package_downloaded[package_index] = downloaded
                         elapsed = max(.001, time.monotonic() - started)
-                        progress(label, completed_bytes + downloaded, total_bytes, (downloaded - existing) / elapsed)
+                        progress(label, sum(package_downloaded), total_bytes, (downloaded - existing) / elapsed)
         if destination.stat().st_size != expected:
             raise RuntimeError(f"{label} 下载大小校验失败")
-        completed_bytes += expected
+        package_downloaded[package_index] = expected
         wheels.append(destination)
-        progress(label, completed_bytes, total_bytes, 0)
+        progress(label, sum(package_downloaded), total_bytes, 0)
 
     progress("正在安装本机运行库", total_bytes, total_bytes, 0)
     process = subprocess.run(
