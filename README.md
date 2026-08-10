@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.13.4`
+Current version: `v0.13.5`
 
 </div>
 
@@ -38,6 +38,7 @@ Current version: `v0.13.4`
 - **Workspace-style push mode** — the site header and content reflow together beside a full-height, clearly separated assistant workspace.
 - **Bilibili header awareness** — the sidebar stays below the live site header in page mode and returns to full height in fullscreen.
 - **Quiet Bilibili launcher** — replaces the automatic prompt with a draggable, position-persistent “译” button.
+- **Dismissible assistant** — close the sidebar normally or right-click its collapsed edge button; it stays hidden until **Process Current Video** is clicked again.
 
 ## Architecture
 
