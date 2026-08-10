@@ -9,7 +9,10 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from .config import default_model_install_dir, load_config, resolve_install_dir, save_config
+from .config import (
+    default_cuda_install_dir, default_model_install_dir, load_config,
+    resolve_install_dir, save_config,
+)
 from .models import DownloadCacheResult, StoragePathResult, StoragePathSelection, StoragePathUpdate
 
 
@@ -165,6 +168,17 @@ def storage_has_existing(kind: str) -> bool:
     return bool(_model_sources(root) if kind == "model" else _cuda_items(root))
 
 
+def default_install_directory(kind: str) -> StoragePathSelection:
+    if kind not in ("model", "cuda"):
+        raise HTTPException(400, "未知的存储类型")
+    current = resolve_install_dir(kind)
+    target = (default_model_install_dir() if kind == "model" else default_cuda_install_dir()).resolve()
+    return StoragePathSelection(
+        kind=kind, path=str(target), changed=current != target,
+        has_existing=current != target and storage_has_existing(kind),
+    )
+
+
 def select_install_directory(kind: str) -> StoragePathSelection:
     if kind not in ("model", "cuda"):
         raise HTTPException(400, "未知的存储类型")
@@ -246,7 +260,8 @@ def _migrate_existing(kind: str, source_root: Path, target_root: Path) -> int:
 
 
 def update_install_directory(update: StoragePathUpdate) -> StoragePathResult:
-    target = Path(update.path).expanduser()
+    default_target = default_model_install_dir() if update.kind == "model" else default_cuda_install_dir()
+    target = default_target if update.use_default else Path(update.path).expanduser()
     if not target.is_absolute():
         raise HTTPException(400, "安装位置必须是绝对路径")
     target = target.resolve()
@@ -254,6 +269,13 @@ def update_install_directory(update: StoragePathUpdate) -> StoragePathResult:
         raise HTTPException(400, "不能直接使用磁盘根目录作为安装位置")
     source = resolve_install_dir(update.kind)
     if source == target:
+        if update.use_default:
+            config = load_config()
+            if update.kind == "model":
+                config.model_install_dir = ""
+            else:
+                config.cuda_install_dir = ""
+            save_config(config)
         return StoragePathResult(kind=update.kind, path=str(target))
     if source in target.parents or target in source.parents:
         raise HTTPException(400, "新旧安装目录不能互相嵌套")
@@ -265,9 +287,9 @@ def update_install_directory(update: StoragePathUpdate) -> StoragePathResult:
 
     config = load_config()
     if update.kind == "model":
-        config.model_install_dir = str(target)
+        config.model_install_dir = "" if update.use_default else str(target)
     else:
-        config.cuda_install_dir = str(target)
+        config.cuda_install_dir = "" if update.use_default else str(target)
     save_config(config)
     return StoragePathResult(
         kind=update.kind, path=str(target), migrated=bool(update.migrate and migrated_items),

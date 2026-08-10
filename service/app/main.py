@@ -20,7 +20,10 @@ from .pipeline import (
     model_download_worker_active, pause_job, resume_job,
     start_cuda_runtime_install, start_model_download,
 )
-from .storage import clear_download_cache, select_install_directory, update_install_directory
+from .storage import (
+    clear_download_cache, default_install_directory, select_install_directory,
+    update_install_directory,
+)
 
 
 app = FastAPI(title="Video Bilingual Assistant", version="0.2.0")
@@ -184,6 +187,11 @@ def cuda_install_cancel():
 @app.post("/storage/select", response_model=StoragePathSelection)
 def storage_select(kind: str):
     return select_install_directory(kind)
+
+
+@app.get("/storage/default", response_model=StoragePathSelection)
+def storage_default(kind: str):
+    return default_install_directory(kind)
 
 
 @app.put("/storage/path", response_model=StoragePathResult)

@@ -55,6 +55,27 @@ def test_storage_path_change_without_migration_keeps_existing_files(tmp_path, mo
     assert saved[0].cuda_install_dir == str(target.resolve())
 
 
+def test_restore_default_path_clears_override_and_can_migrate(tmp_path, monkeypatch):
+    source = tmp_path / "custom-models"
+    target = tmp_path / "default-models"
+    _write_model(source / "small")
+    saved = []
+    monkeypatch.setattr(storage, "resolve_install_dir", lambda kind: source)
+    monkeypatch.setattr(storage, "default_model_install_dir", lambda: target)
+    monkeypatch.setattr(storage, "_model_sources", lambda root: [("small", source / "small")])
+    monkeypatch.setattr(storage, "load_config", lambda: ServiceConfig(model_install_dir=str(source)))
+    monkeypatch.setattr(storage, "save_config", saved.append)
+
+    result = storage.update_install_directory(StoragePathUpdate(
+        kind="model", migrate=True, use_default=True,
+    ))
+
+    assert result.path == str(target.resolve())
+    assert result.migrated is True
+    assert (target / "small" / "model.bin").exists()
+    assert saved[0].model_install_dir == ""
+
+
 def test_folder_picker_reports_changed_path_and_existing_content(tmp_path, monkeypatch):
     current = tmp_path / "current"
     selected = tmp_path / "selected"

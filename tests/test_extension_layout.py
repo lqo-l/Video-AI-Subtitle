@@ -77,12 +77,27 @@ def test_settings_offer_folder_picker_and_confirm_existing_migration():
     assert 'id="cuda_install_dir" readonly' in html
     assert 'id="choose_model_dir"' in html
     assert 'id="choose_cuda_dir"' in html
+    assert 'id="reset_model_dir"' in html
+    assert 'id="reset_cuda_dir"' in html
     assert 'id="migration_dialog"' in html
     assert 'data-migration="cancel"' in html
     assert 'data-migration="keep"' in html
     assert 'data-migration="migrate"' in html
     assert "selected.has_existing?await askMigration(kind)" in script
     assert 'request("/storage/path",{method:"PUT"' in script
+    assert 'request(`/storage/default?kind=${kind}`)' in script
+    assert "use_default:useDefault" in script
+
+
+def test_status_wave_is_host_style_safe_and_tool_pairs_remain_adjacent():
+    # Moon Add: injected status visuals avoid generic host tags and paired controls stay together.
+    root = Path(__file__).parents[1] / "extension"
+    html = (root / "content.js").read_text(encoding="utf-8")
+    css = (root / "content.css").read_text(encoding="utf-8")
+    pulse = '<div class="ytba-pulse" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>'
+    assert pulse in html
+    assert ".ytba-pulse > span { display:block !important" in css
+    assert html.index('data-control="smaller"') < html.index('data-control="larger"') < html.index('data-control="up"') < html.index('data-control="down"')
 
 
 def test_secondary_storage_actions_are_collapsed_and_cache_scope_is_explicit():

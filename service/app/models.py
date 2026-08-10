@@ -43,8 +43,10 @@ class StoragePathSelection(BaseModel):
 
 class StoragePathUpdate(BaseModel):
     kind: Literal["model", "cuda"]
-    path: str
+    path: str = ""
     migrate: bool = False
+    # Moon Add: preserve default-path semantics instead of storing a resolved snapshot.
+    use_default: bool = False
 
 
 class StoragePathResult(BaseModel):

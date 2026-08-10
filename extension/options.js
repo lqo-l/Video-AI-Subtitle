@@ -33,6 +33,7 @@ function renderModel(data,query=modelQuery()){
   download_model.disabled=running;
   download_model.hidden=data.valid&&!running;
   choose_model_dir.disabled=running;
+  reset_model_dir.disabled=running;
   clear_model_cache.disabled=running;
   download_model.textContent=running?"正在下载…":"下载 / 继续下载";
   cancel_model_download.hidden=!running;
@@ -66,6 +67,7 @@ function renderCuda(data){
   install_cuda.disabled=running||data.valid;
   install_cuda.hidden=data.valid&&!running;
   choose_cuda_dir.disabled=running;
+  reset_cuda_dir.disabled=running;
   clear_cuda_cache.disabled=running;
   install_cuda.textContent=data.valid?"GPU 已配置":running?"正在配置…":"一键配置 GPU";
   const downloading=running&&(!data.total||data.downloaded<data.total);
@@ -138,19 +140,37 @@ async function chooseStorageDirectory(kind){
   try{
     const selected=await request(`/storage/select?kind=${kind}`,{method:"POST"});
     if(!selected.changed)return;
-    const choice=selected.has_existing?await askMigration(kind):"keep";
-    if(choice==="cancel")return;
-    const migrate=choice==="migrate";
-    message.textContent=migrate?"正在迁移已有文件，请勿关闭设置页…":"正在更新安装位置…";
-    const result=await request("/storage/path",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind,path:selected.path,migrate})});
-    input.value=result.path;
-    message.textContent=result.migrated?`已迁移 ${result.migrated_items} 项内容并更新安装位置`:"已更新安装位置，旧文件保持不变";
+    if(!await applyStorageDirectory(kind,selected,false,input))return;
     if(kind==="model")await checkModel();else await checkCuda();
   }catch(error){message.textContent=`无法更新安装位置：${error.message}`;}
   finally{button.disabled=false;}
 }
+async function applyStorageDirectory(kind,selected,useDefault,input){
+  const choice=selected.has_existing?await askMigration(kind):"keep";
+  if(choice==="cancel")return false;
+  const migrate=choice==="migrate";
+  message.textContent=migrate?"正在迁移已有文件，请勿关闭设置页…":"正在更新安装位置…";
+  const result=await request("/storage/path",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind,path:selected.path,migrate,use_default:useDefault})});
+  input.value=result.path;
+  message.textContent=result.migrated?`已迁移 ${result.migrated_items} 项内容并${useDefault?"恢复默认路径":"更新安装位置"}`:useDefault?"已恢复默认安装路径，旧位置文件保持不变":"已更新安装位置，旧文件保持不变";
+  return true;
+}
+async function resetStorageDirectory(kind){
+  const button=kind==="model"?reset_model_dir:reset_cuda_dir;
+  const input=kind==="model"?model_install_dir:cuda_install_dir;
+  button.disabled=true;
+  try{
+    const selected=await request(`/storage/default?kind=${kind}`);
+    if(!selected.changed){message.textContent="当前已经是默认安装路径";return;}
+    if(!await applyStorageDirectory(kind,selected,true,input))return;
+    if(kind==="model")await checkModel();else await checkCuda();
+  }catch(error){message.textContent=`无法恢复默认路径：${error.message}`;}
+  finally{button.disabled=false;}
+}
 choose_model_dir.onclick=()=>chooseStorageDirectory("model");
 choose_cuda_dir.onclick=()=>chooseStorageDirectory("cuda");
+reset_model_dir.onclick=()=>resetStorageDirectory("model");
+reset_cuda_dir.onclick=()=>resetStorageDirectory("cuda");
 open_cuda.onclick=async()=>{try{await request("/cuda/open",{method:"POST"});}catch(error){cuda_detail.textContent=`无法打开运行库文件夹：${error.message}`;}};
 reset_translation.onclick=()=>{translation_model.value="deepseek-v4-flash";message.textContent="已恢复默认值，请点击保存设置";};
 window.addEventListener("beforeunload",()=>chrome.runtime.sendMessage({type:"release-service"}));
