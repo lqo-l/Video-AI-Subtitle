@@ -72,12 +72,15 @@ def test_folder_picker_reports_changed_path_and_existing_content(tmp_path, monke
     assert result.path == str(selected.resolve())
 
 
-def test_folder_picker_supports_typing_or_pasting_a_path():
-    # Moon Add: use the Windows file dialog address field instead of the folder tree-only dialog.
+def test_folder_picker_uses_native_shell_folder_mode_with_dpi_awareness():
+    # Moon Modified: use the modern Windows Shell picker instead of disguising a file dialog.
     script = storage._FOLDER_PICKER_SCRIPT
-    assert "System.Windows.Forms.OpenFileDialog" in script
-    assert "$dialog.ValidateNames = $false" in script
-    assert "$dialog.CheckFileExists = $false" in script
+    assert "IFileDialog" in script
+    assert "PickFolders = 0x20" in script
+    assert "ForceFileSystem = 0x40" in script
+    assert "SetProcessDpiAwarenessContext" in script
+    assert 'SetOkButtonLabel("选择此文件夹")' in script
+    assert "System.Windows.Forms.OpenFileDialog" not in script
     assert "FolderBrowserDialog" not in script
 
 

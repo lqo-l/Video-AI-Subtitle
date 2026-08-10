@@ -14,35 +14,103 @@ from .models import DownloadCacheResult, StoragePathResult, StoragePathSelection
 
 
 _FOLDER_PICKER_SCRIPT = r"""
-Add-Type -AssemblyName System.Windows.Forms
-$owner = New-Object System.Windows.Forms.Form
-$owner.TopMost = $true
-$owner.ShowInTaskbar = $false
-$owner.WindowState = 'Minimized'
-$dialog = New-Object System.Windows.Forms.OpenFileDialog
-$dialog.Title = $env:YTBA_FOLDER_TITLE
-$dialog.CheckFileExists = $false
-$dialog.CheckPathExists = $true
-$dialog.ValidateNames = $false
-$dialog.DereferenceLinks = $true
-$dialog.Filter = '文件夹|*.folder'
-$dialog.FileName = '选择当前文件夹'
-if (Test-Path -LiteralPath $env:YTBA_INITIAL_FOLDER) {
-    $dialog.InitialDirectory = $env:YTBA_INITIAL_FOLDER
-}
-$owner.Show()
-$owner.Activate()
-try {
-    if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
-        $selected = [System.IO.Path]::GetDirectoryName($dialog.FileName)
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        Write-Output $selected
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace Ytba.Native {
+    [Flags]
+    public enum FileOpenOptions : uint {
+        PickFolders = 0x20,
+        ForceFileSystem = 0x40,
+        PathMustExist = 0x800,
+        NoChangeDir = 0x8
     }
-} finally {
-    $dialog.Dispose()
-    $owner.Close()
-    $owner.Dispose()
+
+    public enum ShellDisplayName : uint { FileSystemPath = 0x80058000 }
+
+    [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IShellItem {
+        void BindToHandler(IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid bhid, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, out IntPtr ppv);
+        void GetParent(out IShellItem parent);
+        void GetDisplayName(ShellDisplayName sigdnName, out IntPtr name);
+        void GetAttributes(uint mask, out uint attributes);
+        void Compare(IShellItem shellItem, uint hint, out int order);
+    }
+
+    [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IFileDialog {
+        [PreserveSig] int Show(IntPtr owner);
+        void SetFileTypes(uint count, IntPtr filterSpec);
+        void SetFileTypeIndex(uint index);
+        void GetFileTypeIndex(out uint index);
+        void Advise(IntPtr events, out uint cookie);
+        void Unadvise(uint cookie);
+        void SetOptions(FileOpenOptions options);
+        void GetOptions(out FileOpenOptions options);
+        void SetDefaultFolder(IShellItem shellItem);
+        void SetFolder(IShellItem shellItem);
+        void GetFolder(out IShellItem shellItem);
+        void GetCurrentSelection(out IShellItem shellItem);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string text);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+        void GetResult(out IShellItem shellItem);
+        void AddPlace(IShellItem shellItem, uint alignment);
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string extension);
+        void Close(int errorCode);
+        void SetClientGuid(ref Guid guid);
+        void ClearClientData();
+        void SetFilter(IntPtr filter);
+    }
+
+    [ComImport, Guid("dc1c5a9c-e88a-4dde-a5a1-60f82a20aef7")]
+    public class FileOpenDialog { }
+
+    public static class FolderPicker {
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+        private static extern void SHCreateItemFromParsingName(string path, IntPtr bindingContext, ref Guid riid, out IShellItem shellItem);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+
+        public static string Show(string title, string initialFolder) {
+            try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { }
+            var dialog = (IFileDialog)new FileOpenDialog();
+            IShellItem initial = null;
+            IShellItem result = null;
+            IntPtr pathPointer = IntPtr.Zero;
+            try {
+                dialog.SetTitle(title);
+                dialog.SetOkButtonLabel("选择此文件夹");
+                dialog.SetOptions(FileOpenOptions.PickFolders | FileOpenOptions.ForceFileSystem | FileOpenOptions.PathMustExist | FileOpenOptions.NoChangeDir);
+                if (!String.IsNullOrWhiteSpace(initialFolder) && System.IO.Directory.Exists(initialFolder)) {
+                    var shellItemGuid = typeof(IShellItem).GUID;
+                    SHCreateItemFromParsingName(initialFolder, IntPtr.Zero, ref shellItemGuid, out initial);
+                    dialog.SetFolder(initial);
+                }
+                if (dialog.Show(GetForegroundWindow()) != 0) return null;
+                dialog.GetResult(out result);
+                result.GetDisplayName(ShellDisplayName.FileSystemPath, out pathPointer);
+                return Marshal.PtrToStringUni(pathPointer);
+            } finally {
+                if (pathPointer != IntPtr.Zero) Marshal.FreeCoTaskMem(pathPointer);
+                if (result != null) Marshal.FinalReleaseComObject(result);
+                if (initial != null) Marshal.FinalReleaseComObject(initial);
+                Marshal.FinalReleaseComObject(dialog);
+            }
+        }
+    }
 }
+'@
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$selected = [Ytba.Native.FolderPicker]::Show($env:YTBA_FOLDER_TITLE, $env:YTBA_INITIAL_FOLDER)
+if ($selected) { Write-Output $selected }
 """
 
 
