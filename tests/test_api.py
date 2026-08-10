@@ -141,7 +141,7 @@ def test_open_resource_folders_use_resolved_status_paths(monkeypatch, tmp_path):
     from service.app.models import ModelStatus
 
     opened = []
-    monkeypatch.setattr(main.os, "startfile", lambda path: opened.append(path), raising=False)
+    monkeypatch.setattr(main, "_open_directory_in_foreground", lambda path: opened.append(str(path)))
     monkeypatch.setattr(main, "get_model_status", lambda model, path: ModelStatus(
         model=model or "small", valid=True, resolved_path=str(tmp_path), stage="模型可用",
     ))
@@ -153,6 +153,21 @@ def test_open_resource_folders_use_resolved_status_paths(monkeypatch, tmp_path):
     assert client.post("/models/open", params={"model": "small"}).json() == {"ok": True}
     assert client.post("/cuda/open").json() == {"ok": True}
     assert opened == [str(tmp_path.resolve()), str(tmp_path.resolve())]
+
+
+def test_open_directory_starts_hidden_foreground_activator(monkeypatch, tmp_path):
+    # Moon Add: opening remains immediate while a hidden helper activates reused Explorer windows.
+    opened = []
+    launched = []
+    monkeypatch.setattr(main.os, "startfile", lambda path: opened.append(path), raising=False)
+    monkeypatch.setattr(main.subprocess, "Popen", lambda command, **kwargs: launched.append((command, kwargs)))
+
+    main._open_directory_in_foreground(tmp_path)
+
+    assert opened == [str(tmp_path)]
+    assert launched[0][0][0] == "powershell.exe"
+    assert launched[0][1]["env"]["YTBA_OPEN_DIRECTORY"] == str(tmp_path)
+    assert launched[0][1]["stdout"] is main.subprocess.DEVNULL
 
 
 def test_whisper_defaults_to_cpu():
