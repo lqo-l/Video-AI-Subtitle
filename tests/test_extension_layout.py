@@ -90,13 +90,15 @@ def test_settings_offer_folder_picker_and_confirm_existing_migration():
 
 
 def test_status_wave_is_host_style_safe_and_tool_pairs_remain_adjacent():
-    # Moon Add: injected status visuals avoid generic host tags and paired controls stay together.
+    # Moon Modified: a single pseudo-element spinner avoids host styling of child tags.
     root = Path(__file__).parents[1] / "extension"
     html = (root / "content.js").read_text(encoding="utf-8")
     css = (root / "content.css").read_text(encoding="utf-8")
-    pulse = '<div class="ytba-pulse" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>'
+    pulse = '<div class="ytba-pulse" aria-hidden="true"></div>'
     assert pulse in html
-    assert ".ytba-pulse > span { display:block !important" in css
+    assert ".ytba-pulse::before" in css
+    assert "overflow:hidden !important" in css
+    assert "ytba-wave" not in css
     assert html.index('data-control="smaller"') < html.index('data-control="larger"') < html.index('data-control="up"') < html.index('data-control="down"')
 
 
