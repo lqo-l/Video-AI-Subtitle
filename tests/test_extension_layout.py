@@ -86,27 +86,31 @@ def test_settings_offer_folder_picker_and_confirm_existing_migration():
 
 
 def test_secondary_storage_actions_are_collapsed_and_cache_scope_is_explicit():
-    # Moon Modified: checks stay visible while folder access and cleanup use compact menus.
+    # Moon Modified: primary actions stay visible while low-frequency settings use fixed disclosure.
     root = Path(__file__).parents[1] / "extension"
     html = (root / "options.html").read_text(encoding="utf-8")
     script = (root / "options.js").read_text(encoding="utf-8")
-    assert 'class="action-menu" id="model_more"' in html
-    assert 'class="action-menu" id="cuda_more"' in html
+    assert 'class="advanced-options" id="model_more"' in html
+    assert 'class="advanced-options" id="cuda_more"' in html
     assert html.index('id="check_model"') < html.index('id="model_more"')
     assert html.index('id="check_cuda"') < html.index('id="cuda_more"')
-    assert html.count("<summary>更多</summary>") == 2
-    assert '<div class="action-popover"><button type="button" id="open_model"' in html
-    assert '<div class="action-popover"><button type="button" id="open_cuda"' in html
+    assert html.count("<summary>高级选项</summary>") == 2
+    assert html.index('id="model_more"') < html.index('id="whisper_download_source"')
+    assert html.index('id="model_more"') < html.index('id="model_install_dir"')
+    assert html.index('id="model_more"') < html.index('id="whisper_model_path"')
+    assert html.index('id="cuda_more"') < html.index('id="cuda_install_dir"')
     assert html.count("清理下载缓存") == 2
     assert 'request(`/storage/download-cache?${query}`,{method:"DELETE"})' in script
     assert "已安装且可用的文件不会被删除" in script
+    assert 'removeAttribute("open")' not in script
 
 
-def test_panel_opacity_label_stays_on_one_line_and_more_menu_has_stable_marker():
-    # Moon Add: compact controls must not wrap or inherit the outer disclosure marker.
+def test_panel_opacity_label_stays_on_one_line_and_advanced_options_are_inline():
+    # Moon Modified: compact controls do not wrap and advanced settings remain in document flow.
     html = (Path(__file__).parents[1] / "extension" / "options.html").read_text(encoding="utf-8")
     assert ".range-row{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content" in html
     assert ".range-row label{margin:0;white-space:nowrap}" in html
-    assert ".action-menu summary,.action-menu[open] summary" in html
-    assert '.action-menu summary::after,.action-menu[open] summary::after{content:"▾"' in html
+    assert ".advanced-options>summary,.advanced-options[open]>summary" in html
+    assert ".advanced-body{display:grid" in html
+    assert "action-popover" not in html
 # Moon End

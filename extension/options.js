@@ -108,7 +108,6 @@ async function clearTransferCache(kind){
     const query=new URLSearchParams({kind,model:whisper_model.value});
     const result=await request(`/storage/download-cache?${query}`,{method:"DELETE"});
     message.textContent=result.removed_files?`已清理 ${result.removed_files} 个文件，释放 ${humanSize(result.freed_bytes)}`:"没有可清理的下载缓存";
-    (kind==="model"?model_more:cuda_more).removeAttribute("open");
     if(kind==="model")await checkModel();else await checkCuda();
   }catch(error){message.textContent=`清理失败：${error.message}`;}
   finally{button.disabled=false;}
