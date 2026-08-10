@@ -149,7 +149,7 @@ def test_inspect_whisper_model_reports_complete_and_partial_models(monkeypatch, 
     # Moon Add: isolate this fixture from real models installed in the user's shared HF cache.
     monkeypatch.setattr(
         pipeline, "_whisper_model_candidates",
-        lambda model, configured_path="": [models / model],
+        lambda model, configured_path="", install_dir="": [models / model],
     )
     monkeypatch.setattr(pipeline, "load_config", lambda: ServiceConfig(whisper_model="medium"))
 

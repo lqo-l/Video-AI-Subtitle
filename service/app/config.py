@@ -13,6 +13,23 @@ CACHE_DIR = APP_DIR / "cache"
 WORK_DIR = APP_DIR / "work"
 
 
+# Moon Begin: stable defaults remain outside the repository and can be overridden per machine.
+def default_model_install_dir() -> Path:
+    return APP_DIR / "models"
+
+
+def default_cuda_install_dir() -> Path:
+    return Path(__import__("sys").prefix) / "Lib" / "site-packages"
+
+
+def resolve_install_dir(kind: str, config: ServiceConfig | None = None) -> Path:
+    cfg = config or load_config()
+    configured = cfg.model_install_dir if kind == "model" else cfg.cuda_install_dir
+    fallback = default_model_install_dir() if kind == "model" else default_cuda_install_dir()
+    return Path(configured).expanduser().resolve() if configured.strip() else fallback.resolve()
+# Moon End
+
+
 def ensure_dirs() -> None:
     for path in (APP_DIR, CACHE_DIR, WORK_DIR):
         path.mkdir(parents=True, exist_ok=True)

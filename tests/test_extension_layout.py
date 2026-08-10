@@ -66,4 +66,21 @@ def test_settings_group_related_model_gpu_and_panel_controls():
     assert "install_cuda.hidden=data.valid&&!running" in script
     assert "已安装 ${humanSize(local.size)}" in script
     assert "status-checking" not in html
+
+
+def test_settings_offer_folder_picker_and_confirm_existing_migration():
+    # Moon Add: model and CUDA targets use native folder selection and explicit migration choice.
+    root = Path(__file__).parents[1] / "extension"
+    html = (root / "options.html").read_text(encoding="utf-8")
+    script = (root / "options.js").read_text(encoding="utf-8")
+    assert 'id="model_install_dir" readonly' in html
+    assert 'id="cuda_install_dir" readonly' in html
+    assert 'id="choose_model_dir"' in html
+    assert 'id="choose_cuda_dir"' in html
+    assert 'id="migration_dialog"' in html
+    assert 'data-migration="cancel"' in html
+    assert 'data-migration="keep"' in html
+    assert 'data-migration="migrate"' in html
+    assert "selected.has_existing?await askMigration(kind)" in script
+    assert 'request("/storage/path",{method:"PUT"' in script
 # Moon End

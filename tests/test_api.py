@@ -146,7 +146,7 @@ def test_open_resource_folders_use_resolved_status_paths(monkeypatch, tmp_path):
 
     opened = []
     monkeypatch.setattr(main, "_open_directory_in_foreground", lambda path: opened.append(str(path)))
-    monkeypatch.setattr(main, "get_model_status", lambda model, path: ModelStatus(
+    monkeypatch.setattr(main, "get_model_status", lambda model, path, install_dir=None: ModelStatus(
         model=model or "small", valid=True, resolved_path=str(tmp_path), stage="模型可用",
     ))
     monkeypatch.setattr(main, "get_cuda_runtime_status", lambda: CudaRuntimeStatus(
@@ -182,8 +182,8 @@ def test_model_status_uses_unsaved_query_selection(monkeypatch):
     # Moon Add: changing the settings-page dropdown must not inspect stale saved config.
     observed = {}
 
-    def fake_status(model, model_path):
-        observed.update(model=model, model_path=model_path)
+    def fake_status(model, model_path, install_dir=None):
+        observed.update(model=model, model_path=model_path, install_dir=install_dir)
         from service.app.models import ModelStatus
         return ModelStatus(model=model, configured_path=model_path, stage="模型可用")
 
@@ -192,15 +192,15 @@ def test_model_status_uses_unsaved_query_selection(monkeypatch):
         "/models/status", params={"model": "small", "model_path": "D:/models/small"}
     )
     assert response.status_code == 200
-    assert observed == {"model": "small", "model_path": "D:/models/small"}
+    assert observed == {"model": "small", "model_path": "D:/models/small", "install_dir": None}
 
 
 def test_model_download_uses_unsaved_query_selection(monkeypatch):
     # Moon Add
     observed = {}
 
-    def fake_download(model, model_path, source):
-        observed.update(model=model, model_path=model_path, source=source)
+    def fake_download(model, model_path, source, install_dir=None):
+        observed.update(model=model, model_path=model_path, source=source, install_dir=install_dir)
         from service.app.models import ModelStatus
         return ModelStatus(model=model, state="running", stage="正在连接模型仓库")
 
@@ -210,5 +210,5 @@ def test_model_download_uses_unsaved_query_selection(monkeypatch):
         params={"model": "medium", "model_path": "", "source": "mirror"},
     )
     assert response.status_code == 200
-    assert observed == {"model": "medium", "model_path": "", "source": "mirror"}
+    assert observed == {"model": "medium", "model_path": "", "source": "mirror", "install_dir": None}
 # Moon End

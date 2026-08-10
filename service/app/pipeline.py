@@ -20,7 +20,7 @@ import webvtt
 import yt_dlp
 from faster_whisper import WhisperModel
 
-from .config import CACHE_DIR, WORK_DIR, load_config
+from .config import CACHE_DIR, WORK_DIR, load_config, resolve_install_dir
 from .llm import LlmClient
 from .models import CudaRuntimeStatus, JobView, LocalModelInfo, ModelStatus, ProcessedVideo, Segment
 
@@ -37,6 +37,7 @@ CUDA_INSTALL_CANCEL = threading.Event()  # Moon Add
 CUDA_DLL_HANDLES: list = []  # Moon Add: keep Windows DLL directory cookies alive.
 CUDA_DLL_PATHS: set[str] = set()  # Moon Add
 CUDA_PRELOADED: list = []  # Moon Add: keep explicit WinDLL module handles alive.
+CUDA_PRELOADED_PATHS: set[str] = set()  # Moon Add
 CUDA_PACKAGES = (
     ("nvidia-cublas-cu12", "cuBLAS 12"),
     ("nvidia-cudnn-cu12", "cuDNN 9"),
@@ -59,13 +60,31 @@ def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
         raise DownloadCancelled()
 
 
+def _model_install_root(install_dir: str = "") -> Path:
+    # Moon Add: keep the legacy cache-relative default testable while allowing an override.
+    return (
+        Path(install_dir).expanduser().resolve()
+        if install_dir.strip() else (CACHE_DIR.parent / "models").resolve()
+    )
+
+
+def _uses_default_model_root(install_dir: str = "") -> bool:
+    return _model_install_root(install_dir) == (CACHE_DIR.parent / "models").resolve()
+
+
 def _configure_private_cuda_runtime() -> list[str]:
     """Expose optional NVIDIA wheels installed inside this project's venv."""
     # Moon Begin
     if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
         return []
     registered: list[str] = []
-    for search_root in map(Path, sys.path):
+    config = load_config()
+    configured_root = resolve_install_dir("cuda", config)
+    search_roots = (
+        [configured_root] if config.cuda_install_dir.strip()
+        else list(dict.fromkeys([configured_root, *map(Path, sys.path)]))
+    )
+    for search_root in search_roots:
         nvidia_root = search_root / "nvidia"
         for component in ("cublas", "cudnn", "cuda_nvrtc"):
             dll_dir = nvidia_root / component / "bin"
@@ -75,18 +94,18 @@ def _configure_private_cuda_runtime() -> list[str]:
             CUDA_DLL_HANDLES.append(handle)
             CUDA_DLL_PATHS.add(str(dll_dir))
             registered.append(str(dll_dir))
-    if not CUDA_PRELOADED:
-        # CTranslate2 resolves these libraries lazily during the first segment
-        # iteration. Explicit loading makes project-private wheels discoverable
-        # even when the process was launched by Chrome Native Messaging.
-        dll_names = ("cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll")
-        for name in dll_names:
-            dll_path = next(
-                (Path(directory) / name for directory in CUDA_DLL_PATHS if (Path(directory) / name).is_file()),
-                None,
-            )
-            if dll_path:
-                CUDA_PRELOADED.append(ctypes.WinDLL(str(dll_path)))
+    # CTranslate2 resolves these libraries lazily during the first segment
+    # iteration. Explicit loading makes custom-target wheels discoverable.
+    dll_names = ("cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll")
+    ordered_dirs = [
+        configured_root / "nvidia" / component / "bin"
+        for component in ("cublas", "cudnn", "cuda_nvrtc")
+    ] + [Path(directory) for directory in CUDA_DLL_PATHS]
+    for name in dll_names:
+        dll_path = next((directory / name for directory in ordered_dirs if (directory / name).is_file()), None)
+        if dll_path and str(dll_path) not in CUDA_PRELOADED_PATHS:
+            CUDA_PRELOADED.append(ctypes.WinDLL(str(dll_path)))
+            CUDA_PRELOADED_PATHS.add(str(dll_path))
     return registered
     # Moon End
 
@@ -308,6 +327,7 @@ def _prepare_whisper_model(
     model_path: str = "",
     download_source: str = "auto",
     cancel_event: threading.Event | None = None,
+    install_dir: str = "",
 ) -> str:
     """Download selected model once and report byte-based first-run progress."""
     # Moon Begin
@@ -334,16 +354,18 @@ def _prepare_whisper_model(
     model_endpoints = WHISPER_MODEL_ENDPOINTS if download_source == "auto" else (endpoint_map.get(download_source, WHISPER_MODEL_ENDPOINTS[0]),)
     # A complete standard cache must never perform a network request or wait
     # for a stale Hugging Face lock left by an interrupted download.
-    standard_repo = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}"
-    standard_snapshots = standard_repo / "snapshots"
-    for cached_path in standard_snapshots.glob("*") if standard_snapshots.exists() else []:
-        if all((cached_path / name).exists() for name in ("config.json", "model.bin", "tokenizer.json")):
-            if progress_callback:
-                size = (cached_path / "model.bin").stat().st_size
-                progress_callback(100, size, size, 0, "本机缓存")
-            return str(cached_path)
+    if _uses_default_model_root(install_dir):
+        standard_repo = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}"
+        standard_snapshots = standard_repo / "snapshots"
+        for cached_path in standard_snapshots.glob("*") if standard_snapshots.exists() else []:
+            if all((cached_path / name).exists() for name in ("config.json", "model.bin", "tokenizer.json")):
+                if progress_callback:
+                    size = (cached_path / "model.bin").stat().st_size
+                    progress_callback(100, size, size, 0, "本机缓存")
+                return str(cached_path)
 
-    legacy_model_dir = CACHE_DIR.parent / "models" / model_name.replace("/", "--")
+    install_root = _model_install_root(install_dir)
+    legacy_model_dir = install_root / model_name.replace("/", "--")
     expected = ("config.json", "model.bin", "tokenizer.json")
     completion_marker = legacy_model_dir / ".ytba-model-size"
     model_file = legacy_model_dir / "model.bin"
@@ -522,8 +544,7 @@ def _prepare_whisper_model(
         "allow_patterns": allow_patterns,
         "tqdm_class": DownloadProgress,
     }
-    if legacy_model_dir.exists() and any(legacy_model_dir.iterdir()):
-        download_options["local_dir"] = legacy_model_dir
+    download_options["local_dir"] = legacy_model_dir
     try:
         _raise_if_cancelled(cancel_event)
         model_path = snapshot_download(
@@ -562,6 +583,7 @@ def _transcribe(
     download_progress: Callable[[int, int, int, float, str], None] | None = None,
     model_path: str = "",
     download_source: str = "auto",
+    install_dir: str = "",
 ) -> tuple[list[Segment], str]:
     _configure_private_cuda_runtime()  # Moon Add: load optional one-click runtime wheels.
     import ctranslate2
@@ -569,8 +591,11 @@ def _transcribe(
     model_name = model_name.removesuffix(".en")  # Moon Add: require multilingual weights.
     # Moon Modified: keep the legacy two-argument call for default discovery and tests.
     prepared_model = (
-        _prepare_whisper_model(model_name, download_progress, model_path, download_source)
-        if model_path or download_source != "auto"
+        _prepare_whisper_model(
+            model_name, download_progress, model_path, download_source,
+            install_dir=install_dir,
+        )
+        if model_path or download_source != "auto" or install_dir
         else _prepare_whisper_model(model_name, download_progress)
     )
     device = device_setting
@@ -714,6 +739,7 @@ async def process_job(job_id: str, url: str) -> None:
                     _transcribe, audio, config.whisper_model, config.device,
                     report_model_download,
                     config.whisper_model_path, config.whisper_download_source,
+                    config.model_install_dir,
                 )
                 await control.checkpoint()
                 # Moon End
@@ -925,28 +951,36 @@ def cancel_job(job_id: str) -> JobView:
     return job
 
 
-def _whisper_model_candidates(model: str, configured_path: str = "") -> list[Path]:
-    """Return model locations in user-selected, shared-cache, then app-cache order."""
+def _whisper_model_candidates(
+    model: str, configured_path: str = "", install_dir: str = "",
+) -> list[Path]:
+    """Return model locations in explicit-use, selected-install, then shared-cache order."""
     # Moon Begin
     from huggingface_hub.constants import HF_HUB_CACHE
 
     candidates: list[Path] = []
     if configured_path.strip():
         candidates.append(Path(configured_path).expanduser())
+    install_root = _model_install_root(install_dir)
+    candidates.append(install_root / model.replace("/", "--"))
     repo_id = model if "/" in model else f"Systran/faster-whisper-{model}"
     snapshots = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}" / "snapshots"
-    if snapshots.exists():
+    if _uses_default_model_root(install_dir) and snapshots.exists():
         candidates.extend(snapshots.glob("*"))
-    candidates.append(CACHE_DIR.parent / "models" / model.replace("/", "--"))
     return list(dict.fromkeys(candidates))
     # Moon End
 
 
-def _local_model_info(model: str, configured_path: str = "") -> LocalModelInfo | None:
+def _local_model_info(
+    model: str, configured_path: str = "", install_dir: str = "",
+) -> LocalModelInfo | None:
     """Find the most complete local copy, including interrupted downloads."""
     # Moon Begin
     required = ("config.json", "tokenizer.json", "model.bin")
-    candidates = [path for path in _whisper_model_candidates(model, configured_path) if path.is_dir()]
+    candidates = [
+        path for path in _whisper_model_candidates(model, configured_path, install_dir)
+        if path.is_dir()
+    ]
     if not candidates:
         return None
     path = max(candidates, key=lambda item: sum((item / name).is_file() for name in required))
@@ -962,13 +996,17 @@ def _local_model_info(model: str, configured_path: str = "") -> LocalModelInfo |
     # Moon End
 
 
-def inspect_whisper_model(model_name: str | None = None, model_path: str | None = None) -> ModelStatus:
+def inspect_whisper_model(
+    model_name: str | None = None, model_path: str | None = None,
+    install_dir: str | None = None,
+) -> ModelStatus:
     _configure_private_cuda_runtime()  # Moon Add
     import ctranslate2
     config = load_config()
     model = (model_name or config.whisper_model).removesuffix(".en")
     configured_path = config.whisper_model_path if model_path is None else model_path
-    selected = _local_model_info(model, configured_path)
+    configured_install_dir = config.model_install_dir if install_dir is None else install_dir
+    selected = _local_model_info(model, configured_path, configured_install_dir)
     size = selected.size if selected else 0
     valid = bool(selected and selected.valid)
     expected = size
@@ -979,7 +1017,9 @@ def inspect_whisper_model(model_name: str | None = None, model_path: str | None 
     # Report all recognizable standard models so users can see what is already reusable.
     local_models = []
     for known_model in dict.fromkeys(("tiny", "base", "small", "medium", model)):
-        info = _local_model_info(known_model, configured_path if known_model == model else "")
+        info = _local_model_info(
+            known_model, configured_path if known_model == model else "", configured_install_dir,
+        )
         if info:
             local_models.append(info)
     cuda = bool(ctranslate2.get_cuda_device_count())
@@ -999,16 +1039,20 @@ def inspect_whisper_model(model_name: str | None = None, model_path: str | None 
     )
 
 
-def get_model_status(model_name: str | None = None, model_path: str | None = None) -> ModelStatus:
+def get_model_status(
+    model_name: str | None = None, model_path: str | None = None,
+    install_dir: str | None = None,
+) -> ModelStatus:
     requested = model_name.removesuffix(".en") if model_name else None
     if MODEL_DOWNLOAD and MODEL_DOWNLOAD.state == "running" and (not requested or MODEL_DOWNLOAD.model == requested):
         return MODEL_DOWNLOAD
-    return inspect_whisper_model(model_name, model_path)
+    return inspect_whisper_model(model_name, model_path, install_dir)
 
 
 def start_model_download(
     model_name: str | None = None, model_path: str | None = None,
     download_source: str | None = None,
+    install_dir: str | None = None,
 ) -> ModelStatus:
     global MODEL_DOWNLOAD, MODEL_DOWNLOAD_TASK
     if MODEL_DOWNLOAD_TASK and not MODEL_DOWNLOAD_TASK.done():
@@ -1016,6 +1060,7 @@ def start_model_download(
     config = load_config()
     model = (model_name or config.whisper_model).removesuffix(".en")
     configured_path = config.whisper_model_path if model_path is None else model_path
+    configured_install_dir = config.model_install_dir if install_dir is None else install_dir
     source = download_source or config.whisper_download_source
     MODEL_DOWNLOAD = ModelStatus(
         model=model, configured_path=configured_path,
@@ -1035,7 +1080,7 @@ def start_model_download(
         try:
             path = await asyncio.to_thread(
                 _prepare_whisper_model, model, progress, configured_path, source,
-                MODEL_DOWNLOAD_CANCEL,
+                MODEL_DOWNLOAD_CANCEL, configured_install_dir,
             )
             _raise_if_cancelled(MODEL_DOWNLOAD_CANCEL)
             MODEL_DOWNLOAD.resolved_path = path
@@ -1062,21 +1107,27 @@ def cancel_model_download() -> ModelStatus:
 def inspect_cuda_runtime() -> CudaRuntimeStatus:
     _configure_private_cuda_runtime()
     required = ("cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll")
+    configured_root = resolve_install_dir("cuda")
+    configured_dirs = [
+        configured_root / "nvidia" / component / "bin"
+        for component in ("cublas", "cudnn", "cuda_nvrtc")
+    ]
+    search_dirs = configured_dirs
     found = {
         name: next(
-            (str(Path(directory) / name) for directory in CUDA_DLL_PATHS if (Path(directory) / name).is_file()),
+            (str(directory / name) for directory in search_dirs if (directory / name).is_file()),
             "",
         )
         for name in required
     }
     installed = all(found.values())
-    valid = installed and len(CUDA_PRELOADED) >= 3
+    valid = installed and all(path in CUDA_PRELOADED_PATHS for path in found.values())
     return CudaRuntimeStatus(
         installed=installed, valid=valid,
         state="completed" if valid else "idle",
         stage="GPU 运行库已配置" if valid else "尚未配置 GPU 运行库（默认使用 CPU）",
         progress=100 if valid else 0,
-        path=str(Path(next(iter(found.values()))).parents[2]) if valid else "",
+        path=str(configured_root) if valid else "",
     )
 
 
@@ -1092,6 +1143,7 @@ def _install_cuda_runtime(
 ) -> None:
     import httpx
 
+    install_root = resolve_install_dir("cuda")
     download_dir = CACHE_DIR.parent / "cuda-runtime-downloads"
     download_dir.mkdir(parents=True, exist_ok=True)
     wheels: list[Path] = []
@@ -1151,7 +1203,10 @@ def _install_cuda_runtime(
     _raise_if_cancelled(cancel_event)
     progress("正在安装本机运行库", total_bytes, total_bytes, 0)
     process = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-index", "--force-reinstall", *map(str, wheels)],
+        [
+            sys.executable, "-m", "pip", "install", "--no-index", "--upgrade",
+            "--target", str(install_root), *map(str, wheels),
+        ],
         capture_output=True, text=True, timeout=600,
     )
     if process.returncode:

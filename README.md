@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Current version: `v0.14.0`
+Current version: `v0.15.0`
 
 </div>
 
@@ -33,6 +33,7 @@ Current version: `v0.14.0`
 - **One-click Markdown export** — download full transcripts with summaries and key points for offline reference.
 - **Flexible display controls** — toggle visibility, switch between source+Chinese / source-only / Chinese-only, adjust font size and position, and enable a background.
 - **Advanced local settings** — validate a custom multilingual Whisper path, select mirror/official downloads, pre-download weights, and inspect size, speed, and percentage.
+- **Custom install targets** — choose separate folders for Whisper models and GPU runtime files, with confirmed migration that preserves the original files.
 - **Task controls** — pause, resume, or cancel while preserving completed extraction, translation, and summary checkpoints.
 - **Unified layout and appearance** — overlay/push applies in windowed and fullscreen playback, controls are grouped, and panel background transparency is configurable.
 - **Workspace-style push mode** — the site header and content reflow together beside a full-height, clearly separated assistant workspace.
@@ -93,7 +94,9 @@ Open the extension popup, click **Settings**, and fill in:
 | Translation model | Model used for subtitle translation |
 | Summary model | Model used for summary and key-point generation |
 | Whisper model | Multilingual `tiny` / `base` / `small` / `medium`; defaults to `small` |
+| Model install folder | Target for future Whisper downloads; existing models can be migrated after confirmation |
 | Device | `auto` (GPU preferred) / `cuda` / `cpu` |
+| GPU runtime folder | Target used by one-click GPU setup; existing runtime files can be migrated after confirmation |
 
 ## Usage
 

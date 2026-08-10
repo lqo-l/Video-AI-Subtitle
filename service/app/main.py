@@ -10,12 +10,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
-from .config import CACHE_DIR, ensure_dirs, load_config, save_config
-from .models import CudaRuntimeStatus, JobView, ModelStatus, PublicConfig, ServiceConfig, VideoRequest
+from .config import CACHE_DIR, ensure_dirs, load_config, resolve_install_dir, save_config
+from .models import (
+    CudaRuntimeStatus, JobView, ModelStatus, PublicConfig, ServiceConfig,
+    StoragePathResult, StoragePathSelection, StoragePathUpdate, VideoRequest,
+)
 from .pipeline import (
     JOBS, cancel_cuda_runtime_install, cancel_job, cancel_model_download, create_job, get_cuda_runtime_status,
     get_model_status, pause_job, resume_job, start_cuda_runtime_install, start_model_download,
 )
+from .storage import select_install_directory, update_install_directory
 
 
 app = FastAPI(title="Video Bilingual Assistant", version="0.2.0")
@@ -53,7 +57,10 @@ def clear_cache():
 @app.get("/config", response_model=PublicConfig)
 def get_config():
     cfg = load_config()
-    return PublicConfig(**cfg.model_dump(exclude={"api_key"}), api_key_configured=bool(cfg.api_key))
+    public = cfg.model_dump(exclude={"api_key"})
+    public["model_install_dir"] = str(resolve_install_dir("model", cfg))
+    public["cuda_install_dir"] = str(resolve_install_dir("cuda", cfg))
+    return PublicConfig(**public, api_key_configured=bool(cfg.api_key))
 
 
 @app.put("/config", response_model=PublicConfig)
@@ -63,6 +70,9 @@ def put_config(config: ServiceConfig):
     # Moon Add: an empty value means keeping the existing secret.
     if not config.api_key:
         config.api_key = load_config().api_key
+    for value in (config.model_install_dir, config.cuda_install_dir):
+        if value and not Path(value).expanduser().is_absolute():
+            raise HTTPException(400, "安装位置必须是绝对路径")
     save_config(config)
     return PublicConfig(**config.model_dump(exclude={"api_key"}), api_key_configured=bool(config.api_key))
 
@@ -108,18 +118,21 @@ def cancel(job_id: str):
 
 
 @app.get("/models/status", response_model=ModelStatus)
-def model_status(model: str | None = None, model_path: str | None = None):
+def model_status(
+    model: str | None = None, model_path: str | None = None,
+    install_dir: str | None = None,
+):
     # Moon Modified: inspect the current settings-page selection before it is saved.
-    return get_model_status(model, model_path)
+    return get_model_status(model, model_path, install_dir)
 
 
 @app.post("/models/download", response_model=ModelStatus)
 async def model_download(
     model: str | None = None, model_path: str | None = None,
-    source: str | None = None,
+    source: str | None = None, install_dir: str | None = None,
 ):
     # Moon Modified: download the visible selection rather than stale saved config.
-    return start_model_download(model, model_path, source)
+    return start_model_download(model, model_path, source, install_dir)
 
 
 @app.post("/models/download/cancel", response_model=ModelStatus)
@@ -234,8 +247,11 @@ def _open_local_directory(path_value: str, label: str) -> dict[str, bool]:
 
 
 @app.post("/models/open")
-def model_open(model: str | None = None, model_path: str | None = None):
-    status = get_model_status(model, model_path)
+def model_open(
+    model: str | None = None, model_path: str | None = None,
+    install_dir: str | None = None,
+):
+    status = get_model_status(model, model_path, install_dir)
     if not status.valid:
         raise HTTPException(409, "当前模型尚不可用")
     return _open_local_directory(status.resolved_path, "模型")
@@ -255,6 +271,22 @@ async def cuda_install():
 def cuda_install_cancel():
     # Moon Add: cancellation preserves completed wheel bytes for a later resume.
     return cancel_cuda_runtime_install()
+
+
+# Moon Begin: native folder selection and confirmed storage migration.
+@app.post("/storage/select", response_model=StoragePathSelection)
+def storage_select(kind: str):
+    return select_install_directory(kind)
+
+
+@app.put("/storage/path", response_model=StoragePathResult)
+def storage_update(update: StoragePathUpdate):
+    if update.kind == "model" and get_model_status().state == "running":
+        raise HTTPException(409, "模型正在下载，暂时不能更改安装位置")
+    if update.kind == "cuda" and get_cuda_runtime_status().state == "running":
+        raise HTTPException(409, "GPU 运行库正在配置，暂时不能更改安装位置")
+    return update_install_directory(update)
+# Moon End
 
 
 @app.post("/cuda/open")

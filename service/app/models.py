@@ -13,6 +13,9 @@ class ServiceConfig(BaseModel):
     whisper_model: str = "small"
     # Moon Add: optional local multilingual faster-whisper directory.
     whisper_model_path: str = ""
+    # Moon Add: user-selected roots for future model and GPU runtime installations.
+    model_install_dir: str = ""
+    cuda_install_dir: str = ""
     whisper_download_source: Literal["auto", "mirror", "official"] = "auto"
     device: Literal["auto", "cuda", "cpu"] = "cpu"
 
@@ -23,9 +26,33 @@ class PublicConfig(BaseModel):
     summary_model: str
     whisper_model: str
     whisper_model_path: str
+    model_install_dir: str
+    cuda_install_dir: str
     whisper_download_source: str
     device: str
     api_key_configured: bool
+
+
+# Moon Begin: native folder selection and migration contracts for the options page.
+class StoragePathSelection(BaseModel):
+    kind: Literal["model", "cuda"]
+    path: str = ""
+    changed: bool = False
+    has_existing: bool = False
+
+
+class StoragePathUpdate(BaseModel):
+    kind: Literal["model", "cuda"]
+    path: str
+    migrate: bool = False
+
+
+class StoragePathResult(BaseModel):
+    kind: Literal["model", "cuda"]
+    path: str
+    migrated: bool = False
+    migrated_items: int = 0
+# Moon End
 
 
 class VideoRequest(BaseModel):
