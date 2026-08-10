@@ -13,14 +13,19 @@ const humanSize=value=>value?`${(value/1024/1024).toFixed(1)} MB`:"0 MB";
 async function ensureService(){if(serviceReady){try{await request("/health");return;}catch(_){serviceReady=false;}}const response=await chrome.runtime.sendMessage({type:"ensure-service"});if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));serviceReady=true;}
 async function request(path,options={}){const response=await fetch(`${API}${path}`,options);if(!response.ok)throw new Error((await response.json().catch(()=>null))?.detail||`服务错误 ${response.status}`);return response.json();}
 function renderModel(data,query=modelQuery()){
-  model_stage.textContent=data.stage+(data.source?` · ${data.source}`:"");
+  const modelName=`Whisper ${data.model||whisper_model.value} 模型`;
+  const running=data.state==="running";
+  const stageText=running
+    ? (data.stage==="正在下载模型"?`正在下载 ${modelName}`:data.stage==="正在连接模型仓库"?`正在连接下载源 · ${modelName}`:`${data.stage} · ${modelName}`)
+    : (data.valid?`${modelName}可用`:data.stage==="尚未安装"?`${modelName}：本机尚未安装`:data.stage==="模型未完整安装"?`${modelName}：本机文件不完整`:`${modelName}：${data.stage}`);
+  model_stage.textContent=stageText+(data.source?` · ${data.source}`:"");
   model_percent.textContent=`${data.progress||0}%`;
   model_bar.style.width=`${data.progress||0}%`;
   const transfer=data.total?`${humanSize(data.downloaded)} / ${humanSize(data.total)}${data.speed?` · ${humanSize(data.speed)}/s`:""}`:"";
   const missing=data.missing_files?.length?`缺少：${data.missing_files.join("、")}`:"";
   const reusable=(data.local_models||[]).filter(item=>item.valid&&item.model!==data.model).map(item=>`${item.model}（${humanSize(item.size)}）`).join("、");
-  model_detail.textContent=[data.resolved_path||data.configured_path||"未找到当前型号",missing,transfer,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
-  const running=data.state==="running";
+  const location=data.resolved_path||data.configured_path||(running?"正在获取文件大小和下载信息…":`本机未安装 ${modelName}`);
+  model_detail.textContent=[location,missing,transfer,reusable?`其他已安装：${reusable}`:"",data.error].filter(Boolean).join(" · ");
   check_model.disabled=running;
   download_model.disabled=running;
   download_model.textContent=running?"正在下载…":"下载 / 继续下载";
