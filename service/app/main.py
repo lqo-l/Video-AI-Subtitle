@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -142,100 +141,6 @@ def model_download_cancel():
     return cancel_model_download()
 
 
-_EXPLORER_ACTIVATION_SCRIPT = r"""
-$target = [System.IO.Path]::GetFullPath($env:YTBA_OPEN_DIRECTORY).TrimEnd('\')
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-
-public static class YtbaWindowActivation {
-    [StructLayout(LayoutKind.Sequential)]
-    public struct FLASHWINFO {
-        public UInt32 cbSize;
-        public IntPtr hwnd;
-        public UInt32 dwFlags;
-        public UInt32 uCount;
-        public UInt32 dwTimeout;
-    }
-
-    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] public static extern UInt32 GetWindowThreadProcessId(IntPtr hWnd, IntPtr processId);
-    [DllImport("kernel32.dll")] public static extern UInt32 GetCurrentThreadId();
-    [DllImport("user32.dll")] public static extern bool AttachThreadInput(UInt32 idAttach, UInt32 idAttachTo, bool attach);
-    [DllImport("user32.dll")] public static extern bool FlashWindowEx(ref FLASHWINFO info);
-
-    public static bool Activate(IntPtr hwnd) {
-        ShowWindowAsync(hwnd, 9);
-        IntPtr foreground = GetForegroundWindow();
-        UInt32 foregroundThread = GetWindowThreadProcessId(foreground, IntPtr.Zero);
-        UInt32 currentThread = GetCurrentThreadId();
-        bool attached = foregroundThread != 0 && foregroundThread != currentThread
-            && AttachThreadInput(currentThread, foregroundThread, true);
-        try {
-            BringWindowToTop(hwnd);
-            return SetForegroundWindow(hwnd);
-        } finally {
-            if (attached) AttachThreadInput(currentThread, foregroundThread, false);
-        }
-    }
-
-    public static void Flash(IntPtr hwnd) {
-        FLASHWINFO info = new FLASHWINFO();
-        info.cbSize = (UInt32)Marshal.SizeOf(info);
-        info.hwnd = hwnd;
-        info.dwFlags = 3;
-        info.uCount = 3;
-        info.dwTimeout = 0;
-        FlashWindowEx(ref info);
-    }
-}
-'@
-
-$shell = New-Object -ComObject Shell.Application
-$deadline = [DateTime]::UtcNow.AddSeconds(3)
-$handle = [IntPtr]::Zero
-do {
-    foreach ($window in @($shell.Windows())) {
-        try {
-            $folder = [System.IO.Path]::GetFullPath([string]$window.Document.Folder.Self.Path).TrimEnd('\')
-            if ($folder -ieq $target) {
-                $handle = [IntPtr][long]$window.HWND
-                break
-            }
-        } catch {}
-    }
-    if ($handle -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 100 }
-} while ($handle -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $deadline)
-
-if ($handle -ne [IntPtr]::Zero) {
-    if (-not [YtbaWindowActivation]::Activate($handle)) {
-        [YtbaWindowActivation]::Flash($handle)
-    }
-}
-"""
-
-
-def _open_directory_in_foreground(path: Path) -> None:
-    """Open Explorer, then best-effort activate the exact folder window."""
-    os.startfile(str(path))
-    environment = os.environ.copy()
-    environment["YTBA_OPEN_DIRECTORY"] = str(path)
-    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    subprocess.Popen(
-        [
-            "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-            "-Command", _EXPLORER_ACTIVATION_SCRIPT,
-        ],
-        env=environment,
-        creationflags=creation_flags,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
 def _open_local_directory(path_value: str, label: str) -> dict[str, bool]:
     # Moon Add: the UI chooses a semantic resource; it cannot pass an arbitrary path.
     path = Path(path_value).resolve() if path_value else None
@@ -243,8 +148,8 @@ def _open_local_directory(path_value: str, label: str) -> dict[str, bool]:
         raise HTTPException(404, f"{label}目录不存在")
     if not hasattr(os, "startfile"):
         raise HTTPException(501, "当前系统不支持打开文件夹")
-    # Moon Modified: Explorer may reuse a background window when called by the hidden native host.
-    _open_directory_in_foreground(path)
+    # Moon Modified: use the native shell action only; no background activation helper.
+    os.startfile(str(path))
     return {"ok": True}
 
 
