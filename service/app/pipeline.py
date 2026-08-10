@@ -586,6 +586,7 @@ def _transcribe(
     install_dir: str = "",
     transcription_progress: Callable[[float, float], None] | None = None,
     expected_duration: float | None = None,
+    transcription_preview: Callable[[list[Segment], str], None] | None = None,
 ) -> tuple[list[Segment], str]:
     _configure_private_cuda_runtime()  # Moon Add: load optional one-click runtime wheels.
     import ctranslate2
@@ -612,25 +613,29 @@ def _transcribe(
         items, info = model.transcribe(
             str(audio), language=None, vad_filter=True, beam_size=5
         )
-        total_duration = float(expected_duration or getattr(info, "duration", 0) or 0)
-        if transcription_progress:
-            transcription_progress(0, total_duration)
-        raw_segments = []
-        for item in items:
-            text = item.text.strip()
-            if text:
-                raw_segments.append((item.start, item.end, text))
-            if transcription_progress:
-                transcription_progress(float(item.end), total_duration)
         language = info.language if info.language in SUPPORTED_LANGUAGES else ""
         if not language:
             raise RuntimeError(
                 f"仅支持英文、日文或中文语音，检测到：{info.language or '未知'}"
             )
-        return [
-            Segment(start=start, end=end, en=text, source_language=language)
-            for start, end, text in raw_segments
-        ], language
+        total_duration = float(expected_duration or getattr(info, "duration", 0) or 0)
+        if transcription_progress:
+            transcription_progress(0, total_duration)
+        preview_segments: list[Segment] = []
+        if transcription_preview:
+            transcription_preview([], language)
+        for item in items:
+            text = item.text.strip()
+            if text:
+                preview_segments.append(Segment(
+                    start=item.start, end=item.end, en=text,
+                    source_language=language,
+                ))
+                if transcription_preview:
+                    transcription_preview(list(preview_segments), language)
+            if transcription_progress:
+                transcription_progress(float(item.end), total_duration)
+        return preview_segments, language
         # Moon End
 
     try:
@@ -750,6 +755,14 @@ async def process_job(job_id: str, url: str) -> None:
                     if total > 0:
                         job.progress = min(54, 45 + int(processed / total * 9))
 
+                def report_transcription_preview(
+                    recognized: list[Segment], language: str,
+                ) -> None:
+                    # Moon Add: atomically expose each recognized source segment.
+                    job.preview_segments = recognized
+                    job.recognized_segments = len(recognized)
+                    job.source_language = language
+
                 job.stage, job.progress = "正在通过 HF 镜像下载语音模型 0%", 25
                 extracted, source_language = await asyncio.to_thread(
                     _transcribe, audio, config.whisper_model, config.device,
@@ -757,6 +770,7 @@ async def process_job(job_id: str, url: str) -> None:
                     config.whisper_model_path, config.whisper_download_source,
                     config.model_install_dir,
                     report_transcription, info.get("duration"),
+                    report_transcription_preview,
                 )
                 await control.checkpoint()
                 # Moon End

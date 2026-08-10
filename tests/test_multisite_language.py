@@ -51,6 +51,7 @@ def test_japanese_translation_uses_language_aware_prompt(monkeypatch):
 def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_path):
     observed = {}
     progress = []
+    previews = []
 
     class FakeInfo:
         language = "ja"
@@ -73,6 +74,7 @@ def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_
         tmp_path / "audio.wav", "small.en", "cpu",
         transcription_progress=lambda current, total: progress.append((current, total)),
         expected_duration=12.0,
+        transcription_preview=lambda items, language: previews.append((items, language)),
     )
 
     assert observed["model"] == "small"
@@ -80,6 +82,9 @@ def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_
     assert language == "ja"
     assert segments[0].source_language == "ja"
     assert progress == [(0, 12.0), (1.0, 12.0)]
+    assert previews[0] == ([], "ja")
+    assert previews[-1][1] == "ja"
+    assert previews[-1][0][0].en == "テスト"
 
 
 def test_transcribe_auto_falls_back_when_cuda_fails_during_iteration(monkeypatch, tmp_path):

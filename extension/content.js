@@ -6,6 +6,7 @@
   let lastUrl = "";
   let pollTimer = null;
   let renderedTranslationCount = -1;
+  let renderedRecognitionCount = -1;
   let activeTab = "transcript";
   let playbackReady = false;
   let panelCollapsed = false;
@@ -505,6 +506,8 @@
     // Moon Add: only an explicit start action may reopen a dismissed assistant.
     assistantDismissed=false;
     resetCompletionNotice();
+    renderedRecognitionCount=-1;
+    renderedTranslationCount=-1;
     const player = video();
     if (player) { player.pause(); player.currentTime = 0; }
     ensurePanel();
@@ -533,6 +536,7 @@
       if(assistantDismissed)return;
       job=null;
       renderedTranslationCount=-1;
+      renderedRecognitionCount=-1;
       renderedSummary="";
       summaryAutoOpened=false;
       transcriptComplete=false;
@@ -565,7 +569,9 @@
       setTabComplete("summary",job.summary_state==="completed");
       refreshTabStates();
       // Moon Begin: render each completed translation batch immediately.
-      if (job.preview_segments?.length && job.translated_segments !== renderedTranslationCount) {
+      const previewChanged=job.recognized_segments!==renderedRecognitionCount||job.translated_segments!==renderedTranslationCount;
+      if (job.preview_segments?.length && previewChanged) {
+        renderedRecognitionCount=job.recognized_segments;
         renderedTranslationCount = job.translated_segments;
         result = {segments: job.preview_segments, summary: "", key_points: [], source_language:job.source_language, platform:job.platform};
         if (job.translated_segments > 0) {
@@ -600,7 +606,7 @@
       } else if (job.state === "paused") {
         pollTimer=setTimeout(poll,1500);
       } else if (job.state !== "failed") {
-        const fastPoll = job.stage.startsWith("翻译中文字幕") || job.stage.includes("生成摘要"); pollTimer = setTimeout(poll, fastPoll ? 750 : 1500);
+        const fastPoll = job.stage.includes("识别语音") || job.stage.startsWith("翻译中文字幕") || job.stage.includes("生成摘要"); pollTimer = setTimeout(poll, fastPoll ? 750 : 1500);
       }
     } catch (error) { updateStatus("连接中断", 0, error.message); }
   }
@@ -666,7 +672,8 @@
       }
       return;
     }
-    body.innerHTML = result.segments.map((x,i)=>`<div class="ytba-segment" data-index="${i}"><div class="ytba-time">${formatTime(x.start)}</div><div class="${result.source_language==="zh"?"ytba-zh":"ytba-en"}">${escapeHtml(x.en)}</div>${result.source_language==="zh"?"":`<div class="ytba-zh">${x.zh ? escapeHtml(x.zh) : '<span style="color:#707784">等待翻译…</span>'}</div>`}</div>`).join("");
+    const recognizing=job?.state==="running"&&job.stage.includes("识别语音");
+    body.innerHTML = result.segments.map((x,i)=>`<div class="ytba-segment" data-index="${i}"><div class="ytba-time">${formatTime(x.start)}</div><div class="${result.source_language==="zh"?"ytba-zh":"ytba-en"}">${escapeHtml(x.en)}</div>${result.source_language==="zh"?"":`<div class="ytba-zh">${x.zh ? escapeHtml(x.zh) : `<span style="color:#707784">${recognizing?"已识别，等待翻译…":"等待翻译…"}</span>`}</div>`}</div>`).join("");
     body.querySelectorAll(".ytba-segment").forEach(el => el.onclick = () => { const player=video(); player.currentTime=result.segments[Number(el.dataset.index)].start; });
   }
 

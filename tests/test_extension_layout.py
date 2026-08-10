@@ -115,6 +115,20 @@ def test_transcription_shows_real_media_time_progress():
     assert "transcription_seconds: float = 0" in models
 
 
+def test_recognized_segments_stream_into_transcript_before_translation():
+    # Moon Add: source segments have an independent preview lifecycle from translation.
+    root = Path(__file__).parents[1]
+    script = (root / "extension" / "content.js").read_text(encoding="utf-8")
+    pipeline = (root / "service" / "app" / "pipeline.py").read_text(encoding="utf-8")
+    models = (root / "service" / "app" / "models.py").read_text(encoding="utf-8")
+    assert "recognized_segments: int = 0" in models
+    assert "job.preview_segments = recognized" in pipeline
+    assert "job.recognized_segments = len(recognized)" in pipeline
+    assert "job.recognized_segments!==renderedRecognitionCount" in script
+    assert "已识别，等待翻译…" in script
+    assert 'job.stage.includes("识别语音") || job.stage.startsWith("翻译中文字幕")' in script
+
+
 def test_completed_status_offers_play_and_stays_dismissed_after_action():
     # Moon Add: completion provides the next action and does not reappear after it is used.
     root = Path(__file__).parents[1] / "extension"
