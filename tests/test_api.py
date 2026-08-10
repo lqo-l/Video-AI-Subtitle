@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from service.app import config
@@ -161,6 +163,25 @@ def test_open_resource_folders_use_resolved_status_paths(monkeypatch, tmp_path):
 
 def test_whisper_defaults_to_cpu():
     assert ServiceConfig().device == "cpu"
+
+
+def test_prompt_endpoints_create_open_and_restore_files(tmp_path, monkeypatch):
+    from service.app import prompts
+
+    opened = []
+    monkeypatch.setattr(prompts, "APP_DIR", tmp_path)
+    monkeypatch.setattr(prompts, "PROMPTS_DIR", tmp_path / "prompts")
+    monkeypatch.setattr(main.os, "startfile", lambda path: opened.append(path), raising=False)
+    client = TestClient(app)
+
+    paths = client.get("/prompts").json()
+    summary = Path(paths["summary"])
+    assert summary.is_file()
+    summary.write_text("custom", encoding="utf-8")
+    assert client.post("/prompts/summary/restore").status_code == 200
+    assert "## 内容摘要" in summary.read_text(encoding="utf-8")
+    assert client.post("/prompts/open").json() == {"ok": True}
+    assert opened == [str(summary.parent)]
 
 
 def test_model_status_uses_unsaved_query_selection(monkeypatch):

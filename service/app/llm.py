@@ -7,6 +7,7 @@ import re
 import httpx
 
 from .models import Segment, ServiceConfig
+from .prompts import format_prompt, load_prompt
 
 
 class LlmClient:
@@ -150,7 +151,7 @@ class LlmClient:
             payload = {"context_only": context, "translate": current}
             text = await self._request(
                 self.config.translation_model,
-                f"将{language_name}视频字幕翻译成自然、准确、简洁的简体中文。context_only 是前文原文与中文对照，只用于理解指代、术语和语气，禁止输出或改写。仅翻译 translate 数组。只返回 JSON 数组，每项格式为 {{id, zh}}；ID 必须来自 translate，不得遗漏、增加或重复，不得添加 Markdown。",
+                format_prompt("translation", language_name=language_name),
                 json.dumps(payload, ensure_ascii=False),
             )
             # Moon End
@@ -205,11 +206,7 @@ class LlmClient:
         user_msg = f"标题：{title}\n\n字幕：\n{transcript}"
         if on_stream:
             # Moon Begin: stream readable Markdown instead of incomplete JSON fragments.
-            stream_prompt = (
-                "根据视频原文字幕生成简体中文内容提炼。严格使用以下 Markdown 结构：\n"
-                "## 内容摘要\n2-4 段连贯摘要\n\n## 关键点\n- 5-12 条要点\n"
-                "不要输出代码围栏、JSON 或额外前言。"
-            )
+            stream_prompt = load_prompt("summary")
             if resume_from:
                 user_msg += (
                     "\n\n以下是中断前已经生成并展示给用户的内容：\n"

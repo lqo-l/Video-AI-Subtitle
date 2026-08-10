@@ -24,6 +24,7 @@ from .storage import (
     clear_download_cache, default_install_directory, select_install_directory,
     update_install_directory,
 )
+from .prompts import ensure_prompt_file, prompt_path, restore_default_prompt
 
 
 app = FastAPI(title="Video Bilingual Assistant", version="0.2.0")
@@ -44,6 +45,26 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"ok": True, "version": app.version}
+
+
+@app.get("/prompts")
+def get_prompt_paths():
+    return {kind: str(ensure_prompt_file(kind)) for kind in ("translation", "summary")}
+
+
+@app.post("/prompts/{kind}/restore")
+def restore_prompt(kind: str):
+    return {"path": str(restore_default_prompt(kind))}
+
+
+@app.post("/prompts/open")
+def open_prompts_folder():
+    path = ensure_prompt_file("summary").parent
+    try:
+        os.startfile(str(path))
+    except OSError as exc:
+        raise HTTPException(500, f"无法打开提示词文件夹：{exc}") from exc
+    return {"ok": True}
 
 
 @app.delete("/cache")

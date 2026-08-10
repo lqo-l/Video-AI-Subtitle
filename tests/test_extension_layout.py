@@ -142,6 +142,22 @@ def test_completed_status_offers_play_and_stays_dismissed_after_action():
     assert ".ytba-play-completed[hidden],.ytba-status[hidden]" in css
 
 
+def test_advanced_settings_offer_prompt_files_with_safe_format_warning():
+    # Moon Add: editable prompts disclose parser-sensitive format constraints and recovery.
+    root = Path(__file__).parents[1] / "extension"
+    html = (root / "options.html").read_text(encoding="utf-8")
+    script = (root / "options.js").read_text(encoding="utf-8")
+    assert 'id="prompt_dir" readonly' in html
+    assert 'id="open_prompts"' in html
+    assert 'id="restore_translation_prompt"' in html
+    assert 'id="restore_summary_prompt"' in html
+    assert "{language_name}" in html
+    assert "## 内容摘要" in html and "## 关键点" in html
+    assert 'request("/prompts")' in script
+    assert 'request("/prompts/open",{method:"POST"})' in script
+    assert 'request(`/prompts/${kind}/restore`,{method:"POST"})' in script
+
+
 def test_secondary_storage_actions_are_collapsed_and_cache_scope_is_explicit():
     # Moon Modified: primary actions stay visible while low-frequency settings use fixed disclosure.
     root = Path(__file__).parents[1] / "extension"

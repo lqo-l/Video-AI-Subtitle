@@ -95,6 +95,10 @@ ensureService().then(()=>request("/config")).then(async data=>{
   checkCuda();
 }).catch(error=>message.textContent=`无法读取设置：${error.message}`);
 
+ensureService().then(()=>request("/prompts")).then(data=>{
+  prompt_dir.value=data.summary||"";
+}).catch(error=>message.textContent=`无法读取提示词位置：${error.message}`);
+
 api_key.onfocus=()=>{if(api_key.value===KEY_PLACEHOLDER)api_key.value="";};
 api_key.onblur=()=>{if(!api_key.value&&api_key.dataset.configured==="true")api_key.value=KEY_PLACEHOLDER;};
 panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
@@ -172,6 +176,18 @@ choose_cuda_dir.onclick=()=>chooseStorageDirectory("cuda");
 reset_model_dir.onclick=()=>resetStorageDirectory("model");
 reset_cuda_dir.onclick=()=>resetStorageDirectory("cuda");
 open_cuda.onclick=async()=>{try{await request("/cuda/open",{method:"POST"});}catch(error){cuda_detail.textContent=`无法打开运行库文件夹：${error.message}`;}};
+open_prompts.onclick=async()=>{try{await request("/prompts/open",{method:"POST"});}catch(error){message.textContent=`无法打开提示词文件夹：${error.message}`;}};
+async function restorePrompt(kind){
+  const label=kind==="translation"?"翻译":"摘要";
+  if(!confirm(`恢复默认${label}提示词？当前文件内容将被覆盖。`))return;
+  const button=kind==="translation"?restore_translation_prompt:restore_summary_prompt;
+  button.disabled=true;
+  try{const result=await request(`/prompts/${kind}/restore`,{method:"POST"});prompt_dir.value=result.path;message.textContent=`已恢复默认${label}提示词`;}
+  catch(error){message.textContent=`恢复默认提示词失败：${error.message}`;}
+  finally{button.disabled=false;}
+}
+restore_translation_prompt.onclick=()=>restorePrompt("translation");
+restore_summary_prompt.onclick=()=>restorePrompt("summary");
 reset_translation.onclick=()=>{translation_model.value="deepseek-v4-flash";message.textContent="已恢复默认值，请点击保存设置";};
 window.addEventListener("beforeunload",()=>chrome.runtime.sendMessage({type:"release-service"}));
 form.onsubmit=async event=>{
