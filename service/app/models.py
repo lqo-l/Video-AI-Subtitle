@@ -65,6 +65,9 @@ class DownloadCacheResult(BaseModel):
 
 class VideoRequest(BaseModel):
     url: HttpUrl
+    # Moon Add: page-loaded Bilibili captions are a higher-fidelity fallback than ASR.
+    page_subtitles: list["Segment"] = Field(default_factory=list)
+    page_subtitle_language: Literal["en", "ja", "zh"] | None = None
 
 
 class Segment(BaseModel):

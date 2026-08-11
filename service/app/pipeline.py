@@ -654,7 +654,10 @@ def _transcribe(
         return run("cpu")
 
 
-async def process_job(job_id: str, url: str) -> None:
+async def process_job(
+    job_id: str, url: str, page_subtitles: list[Segment] | None = None,
+    page_subtitle_language: str | None = None,
+) -> None:
     job = JOBS[job_id]
     control = JOB_CONTROLS.setdefault(job_id, JobControl())  # Moon Add
     video_id = video_id_from_url(url)
@@ -717,10 +720,20 @@ async def process_job(job_id: str, url: str) -> None:
         temp.mkdir(parents=True, exist_ok=True)
         try:
             job.state, job.stage, job.progress = "running", "读取视频信息与字幕", 8
-            info, extracted, audio = await asyncio.to_thread(_download, url, temp)
-            await control.checkpoint()
-            source = info.get("_ytba_source", f"{platform}_subtitles")
-            source_language = info.get("_ytba_language", "en")
+            # Moon Add: Bilibili's active page can expose a subtitle track that yt-dlp
+            # does not list. Prefer it before falling back to local Whisper recognition.
+            if platform == "bilibili" and page_subtitles:
+                extracted = page_subtitles
+                source = "bilibili_subtitles"
+                source_language = page_subtitle_language or page_subtitles[0].source_language
+                job.stage, job.progress = "已读取 B 站页面字幕", 50
+                info = {"title": video_id, "duration": None}
+                audio = None
+            else:
+                info, extracted, audio = await asyncio.to_thread(_download, url, temp)
+                await control.checkpoint()
+                source = info.get("_ytba_source", f"{platform}_subtitles")
+                source_language = info.get("_ytba_language", "en")
             if not extracted:
                 config = load_config()
                 # Moon Begin: distinguish first-run model download from transcription.
@@ -925,11 +938,14 @@ async def process_job(job_id: str, url: str) -> None:
     final_stage = "字幕完成，摘要生成失败" if job.summary_state == "failed" else "处理完成，请手动播放"
     job.state, job.stage, job.progress = "completed", final_stage, 100
 
-async def _run_job(job_id: str, url: str) -> None:
+async def _run_job(
+    job_id: str, url: str, page_subtitles: list[Segment] | None = None,
+    page_subtitle_language: str | None = None,
+) -> None:
     """Keep cancellation visible instead of leaving a stale running job."""
     # Moon Begin
     try:
-        await process_job(job_id, url)
+        await process_job(job_id, url, page_subtitles, page_subtitle_language)
     except asyncio.CancelledError:
         job = JOBS[job_id]
         job.state, job.stage, job.error = "cancelled", "任务已取消，进度已保留", None
@@ -941,12 +957,17 @@ async def _run_job(job_id: str, url: str) -> None:
     # Moon End
 
 
-def create_job(url: str) -> JobView:
+def create_job(
+    url: str, page_subtitles: list[Segment] | None = None,
+    page_subtitle_language: str | None = None,
+) -> JobView:
     job_id = uuid.uuid4().hex
     job = JobView(id=job_id, state="queued", stage="等待处理", progress=0)
     JOBS[job_id] = job
     JOB_CONTROLS[job_id] = JobControl()
-    JOB_TASKS[job_id] = asyncio.create_task(_run_job(job_id, url))
+    JOB_TASKS[job_id] = asyncio.create_task(
+        _run_job(job_id, url, page_subtitles, page_subtitle_language)
+    )
     return job
 
 

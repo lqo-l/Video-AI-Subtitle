@@ -27,6 +27,30 @@ def test_read_bilibili_srt_preserves_japanese_language(tmp_path):
     assert segments[0].source_language == "ja"
 
 
+def test_page_subtitles_are_used_before_whisper_fallback(tmp_path, monkeypatch):
+    # Moon Add: Bilibili page tracks cover captions yt-dlp may not enumerate.
+    page_segments = [Segment(start=0, end=1, en="Page caption", source_language="en")]
+    monkeypatch.setattr(pipeline, "CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(pipeline, "WORK_DIR", tmp_path / "work")
+    monkeypatch.setattr(pipeline, "_download", lambda *args: (_ for _ in ()).throw(AssertionError("不应下载音频")))
+    class FakeClient:
+        def __init__(self, config): pass
+        async def translate(self, segments, progress):
+            segments[0].zh="页面字幕";progress(1,1)
+        async def summarize(self, title, segments, on_stream, resume_from=""):
+            on_stream("## 内容摘要\n摘要\n\n## 关键点\n- 要点");return "摘要",["要点"]
+        async def close(self): pass
+    monkeypatch.setattr(pipeline, "LlmClient", FakeClient)
+    monkeypatch.setattr(pipeline, "load_config", lambda: ServiceConfig())
+    (tmp_path / "cache").mkdir();(tmp_path / "work").mkdir()
+    job_id="page-subtitle-job"
+    pipeline.JOBS[job_id]=JobView(id=job_id,state="queued",stage="等待处理",progress=0)
+    asyncio.run(pipeline.process_job(job_id,"https://www.bilibili.com/video/BV1test",page_segments,"en"))
+    job=pipeline.JOBS.pop(job_id)
+    assert job.result.source == "bilibili_subtitles"
+    assert job.result.segments[0].en == "Page caption"
+
+
 def test_japanese_translation_uses_language_aware_prompt(monkeypatch):
     client = LlmClient(ServiceConfig(api_key="test"))
     segments = [Segment(start=0, end=1, en="こんにちは", source_language="ja")]

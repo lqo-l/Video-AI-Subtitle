@@ -108,7 +108,9 @@ async def start_job(request: VideoRequest):  # Moon Modified: keep task creation
     hostname = (urlparse(url).hostname or "").lower()
     if hostname not in ("youtu.be", "youtube.com", "www.youtube.com", "bilibili.com", "www.bilibili.com"):
         raise HTTPException(400, "仅支持 YouTube 或 Bilibili 视频链接")
-    return create_job(str(request.url))
+    return create_job(
+        str(request.url), request.page_subtitles, request.page_subtitle_language,
+    )
 
 
 @app.get("/jobs/{job_id}", response_model=JobView)

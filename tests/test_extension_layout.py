@@ -20,6 +20,18 @@ def test_bilibili_uses_draggable_launcher_instead_of_prompt():
     assert "bindLauncherDrag" in script
 
 
+def test_bilibili_page_subtitles_are_sent_before_whisper_fallback():
+    # Moon Add: the extension reads the page's active Bilibili subtitle track.
+    root = Path(__file__).parents[1] / "extension"
+    script = (root / "content.js").read_text(encoding="utf-8")
+    background = (root / "background.js").read_text(encoding="utf-8")
+    manifest = (root / "manifest.json").read_text(encoding="utf-8")
+    assert 'type:"fetch-bilibili-subtitles"' in script
+    assert "page_subtitles:pageSubtitles.segments" in script
+    assert "https://api.bilibili.com/x/player/v2" in background
+    assert "https://*.hdslb.com/*" in manifest
+
+
 def test_collapsed_panel_hides_content_without_reflow_flash():
     css = (Path(__file__).parents[1] / "extension" / "content.css").read_text(encoding="utf-8")
     collapsed_rule = next(

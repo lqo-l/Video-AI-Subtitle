@@ -90,6 +90,14 @@
     document.body.appendChild(box);
   }
 
+  async function getBilibiliPageSubtitles(){
+    if(site!=="bilibili")return {segments:[]};
+    try{
+      const response=await safeSendMessage({type:"fetch-bilibili-subtitles",url:location.href});
+      return Array.isArray(response?.segments)?response:{segments:[]};
+    }catch(error){console.warn("[YTBA] Bilibili page subtitles unavailable:",error);return {segments:[]};}
+  }
+
   // Moon Begin: Bilibili uses a quiet draggable launcher instead of a modal prompt.
   function showLauncher() {
     if(assistantDismissed||document.querySelector("#ytba-launcher")||document.querySelector("#ytba-root"))return;
@@ -516,7 +524,8 @@
       updateStatus("正在启动本机服务", 2);
       await ensureService();
       if(assistantDismissed){safeSendMessage({type:"release-service"}).catch(()=>{});return;}
-      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:location.href})});
+      const pageSubtitles=await getBilibiliPageSubtitles();
+      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:location.href,page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
       if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});safeSendMessage({type:"release-service"}).catch(()=>{});return;}
       job=createdJob;
       poll();
@@ -543,7 +552,8 @@
       summaryComplete=false;
       await ensureService();
       if(assistantDismissed){safeSendMessage({type:"release-service"}).catch(()=>{});return;}
-      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:location.href})});
+      const pageSubtitles=await getBilibiliPageSubtitles();
+      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:location.href,page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
       if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});safeSendMessage({type:"release-service"}).catch(()=>{});return;}
       job=createdJob;
       poll();
