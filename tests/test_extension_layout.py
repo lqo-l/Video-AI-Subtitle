@@ -51,6 +51,15 @@ def test_bilibili_page_caption_cache_is_scoped_to_current_player_cid():
     assert 'f"bilibili_{video_id}_cid{current_cid}"' in pipeline
 
 
+def test_chinese_source_replaces_redundant_language_picker_with_static_label():
+    # Moon Add: Chinese source and Chinese translation are the same display content.
+    script = (Path(__file__).parents[1] / "extension" / "content.js").read_text(encoding="utf-8")
+    assert 'data-language-static hidden>中文</span>' in script
+    assert 'const chineseSource=result?.source_language==="zh"' in script
+    assert "languageSelect.hidden=chineseSource" in script
+    assert "staticLanguage.hidden=!chineseSource" in script
+
+
 def test_collapsed_panel_hides_content_without_reflow_flash():
     css = (Path(__file__).parents[1] / "extension" / "content.css").read_text(encoding="utf-8")
     collapsed_rule = next(
