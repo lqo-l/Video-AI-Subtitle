@@ -289,6 +289,25 @@ def _select_caption(captions: dict) -> tuple[str, str] | None:
     return key, language
 
 
+def _is_retryable_media_download_error(error: Exception) -> bool:
+    """Return whether a CDN stream ended early and can safely be downloaded again."""
+    # Moon Add: Bilibili CDN occasionally closes a response before its advertised Content-Length.
+    message = str(error).lower()
+    return (
+        ("downloaded" in message and "expected" in message)
+        or any(marker in message for marker in (
+            "timed out", "connection reset", "incomplete read", "unexpected end of file",
+        ))
+    )
+
+
+def _clear_partial_audio(directory: Path) -> None:
+    # Moon Add: never resume a truncated CDN stream as if it were a valid audio file.
+    for path in directory.glob("audio.*"):
+        if path.is_file():
+            path.unlink(missing_ok=True)
+
+
 def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | None]:
     common = {"quiet": True, "no_warnings": True, "noplaylist": True, "paths": {"home": str(directory)}}
     with yt_dlp.YoutubeDL(common) as ydl:
@@ -319,9 +338,24 @@ def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | No
         "format": "bestaudio/best",
         "outtmpl": str(directory / "audio.%(ext)s"),
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav", "preferredquality": "160"}],
+        # Moon Add: serial fresh attempts are more stable against Bilibili CDN's truncated range responses.
+        "continuedl": False,
+        "overwrites": True,
+        "retries": 4,
+        "fragment_retries": 4,
+        "file_access_retries": 2,
+        "concurrent_fragment_downloads": 1,
     }
-    with yt_dlp.YoutubeDL(options) as ydl:
-        ydl.download([url])
+    for attempt in range(3):
+        try:
+            _clear_partial_audio(directory)
+            with yt_dlp.YoutubeDL(options) as ydl:
+                ydl.download([url])
+            break
+        except yt_dlp.utils.DownloadError as error:
+            if attempt == 2 or not _is_retryable_media_download_error(error):
+                raise
+            time.sleep(attempt + 1)
     audio = directory / "audio.wav"
     if not audio.exists():
         raise RuntimeError("音频下载或 FFmpeg 转换失败")
@@ -964,7 +998,11 @@ async def _run_job(
         job.state, job.stage, job.error = "cancelled", "任务已取消，进度已保留", None
     except Exception as exc:
         job = JOBS[job_id]
-        job.state, job.stage, job.error = "failed", "处理失败", str(exc)
+        # Moon Add: hide transport implementation details after all safe retries are exhausted.
+        if _is_retryable_media_download_error(exc):
+            job.state, job.stage, job.error = "failed", "音频下载多次中断", "B 站音频下载多次中断，请稍后点击重试"
+        else:
+            job.state, job.stage, job.error = "failed", "处理失败", str(exc)
     finally:
         JOB_TASKS.pop(job_id, None)
     # Moon End
