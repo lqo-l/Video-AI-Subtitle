@@ -21,15 +21,33 @@ def test_bilibili_uses_draggable_launcher_instead_of_prompt():
 
 
 def test_bilibili_page_subtitles_are_sent_before_whisper_fallback():
-    # Moon Add: the extension reads the page's active Bilibili subtitle track.
+    # Moon Modified: only the live Bilibili player CID may select a page subtitle track.
     root = Path(__file__).parents[1] / "extension"
     script = (root / "content.js").read_text(encoding="utf-8")
     background = (root / "background.js").read_text(encoding="utf-8")
     manifest = (root / "manifest.json").read_text(encoding="utf-8")
     assert 'type:"fetch-bilibili-subtitles"' in script
+    assert 'type:"fetch-bilibili-subtitles",identity' in script
+    assert 'ytba:get-bilibili-playback-identity' in script
+    assert "requireBilibiliPlaybackIdentity(pageSubtitles)" in script
+    assert "无法确认 B 站当前播放器" in script
     assert "page_subtitles:pageSubtitles.segments" in script
     assert "https://api.bilibili.com/x/player/v2" in background
+    assert "message.identity" in background
+    assert "pages?.[page-1]" not in background
+    identity_script = (root / "bilibili-page-identity.js").read_text(encoding="utf-8")
+    assert "getVideoMessage" in identity_script
+    assert "performance.getEntriesByType" in identity_script
     assert "https://*.hdslb.com/*" in manifest
+
+
+def test_bilibili_page_caption_cache_is_scoped_to_current_player_cid():
+    # Moon Add: URL p may be stale after SPA navigation and must not collide in cache.
+    root = Path(__file__).parents[1]
+    content = (root / "extension" / "content.js").read_text(encoding="utf-8")
+    pipeline = (root / "service" / "app" / "pipeline.py").read_text(encoding="utf-8")
+    assert 'url.searchParams.set("ytba_cid"' in content
+    assert 'f"bilibili_{video_id}_cid{current_cid}"' in pipeline
 
 
 def test_collapsed_panel_hides_content_without_reflow_flash():

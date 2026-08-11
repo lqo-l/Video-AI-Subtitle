@@ -159,7 +159,12 @@ def cache_key_from_url(url: str) -> str:
     platform = platform_from_url(url)
     video_id = video_id_from_url(url)
     if platform == "bilibili":
-        page = parse_qs(urlparse(url).query).get("p", ["1"])[0]
+        query = parse_qs(urlparse(url).query)
+        current_cid = query.get("ytba_cid", [""])[0]
+        if current_cid.isdecimal() and int(current_cid) > 0:
+            # Moon Add: a page subtitle belongs to the live player CID, which can differ from URL p after SPA navigation.
+            return f"bilibili_{video_id}_cid{current_cid}"
+        page = query.get("p", ["1"])[0]
         return f"bilibili_{video_id}_p{page}"
     return video_id  # Moon Modified: preserve existing YouTube cache filenames.
 

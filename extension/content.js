@@ -93,9 +93,30 @@
   async function getBilibiliPageSubtitles(){
     if(site!=="bilibili")return {segments:[]};
     try{
-      const response=await safeSendMessage({type:"fetch-bilibili-subtitles",url:location.href});
-      return Array.isArray(response?.segments)?response:{segments:[]};
-    }catch(error){console.warn("[YTBA] Bilibili page subtitles unavailable:",error);return {segments:[]};}
+      // Moon Add: the main-world helper returns the active player CID, not a URL-derived part number.
+      const identity=await new Promise(resolve=>{
+        const receive=event=>resolve(event.detail||null);
+        window.addEventListener("ytba:bilibili-playback-identity",receive,{once:true});
+        window.dispatchEvent(new Event("ytba:get-bilibili-playback-identity"));
+        setTimeout(()=>resolve(null),400);
+      });
+      if(!identity)return {segments:[],identityAvailable:false};
+      const response=await safeSendMessage({type:"fetch-bilibili-subtitles",identity});
+      return Array.isArray(response?.segments)?{...response,cid:identity.cid,identityAvailable:true}:{segments:[],identityAvailable:true};
+    }catch(error){console.warn("[YTBA] Bilibili page subtitles unavailable:",error);return {segments:[],identityAvailable:false};}
+  }
+
+  function requireBilibiliPlaybackIdentity(pageSubtitles){
+    // Moon Add: without a live CID, falling back to URL p could show another SPA video part's captions.
+    if(site==="bilibili"&&!pageSubtitles.identityAvailable)throw new Error("无法确认 B 站当前播放器，请刷新页面后重试");
+  }
+
+  function jobUrlForPageSubtitles(pageSubtitles){
+    if(site!=="bilibili"||!Number.isSafeInteger(Number(pageSubtitles?.cid)))return location.href;
+    // Moon Add: scope cached page captions to the exact player CID, not an SPA-stale p query parameter.
+    const url=new URL(location.href);
+    url.searchParams.set("ytba_cid",String(pageSubtitles.cid));
+    return url.href;
   }
 
   // Moon Begin: Bilibili uses a quiet draggable launcher instead of a modal prompt.
@@ -525,7 +546,8 @@
       await ensureService();
       if(assistantDismissed){safeSendMessage({type:"release-service"}).catch(()=>{});return;}
       const pageSubtitles=await getBilibiliPageSubtitles();
-      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:location.href,page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
+      requireBilibiliPlaybackIdentity(pageSubtitles);
+      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:jobUrlForPageSubtitles(pageSubtitles),page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
       if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});safeSendMessage({type:"release-service"}).catch(()=>{});return;}
       job=createdJob;
       poll();
@@ -553,7 +575,8 @@
       await ensureService();
       if(assistantDismissed){safeSendMessage({type:"release-service"}).catch(()=>{});return;}
       const pageSubtitles=await getBilibiliPageSubtitles();
-      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:location.href,page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
+      requireBilibiliPlaybackIdentity(pageSubtitles);
+      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:jobUrlForPageSubtitles(pageSubtitles),page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
       if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});safeSendMessage({type:"release-service"}).catch(()=>{});return;}
       job=createdJob;
       poll();
