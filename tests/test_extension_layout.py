@@ -35,6 +35,7 @@ def test_bilibili_page_subtitles_are_sent_before_whisper_fallback():
     assert "https://api.bilibili.com/x/player/v2" in background
     assert "message.identity" in background
     assert "pages?.[page-1]" not in background
+    assert "cleanBilibiliCaption" in background
     identity_script = (root / "bilibili-page-identity.js").read_text(encoding="utf-8")
     assert "getVideoMessage" in identity_script
     assert "performance.getEntriesByType" in identity_script

@@ -1,6 +1,14 @@
 const API = "http://127.0.0.1:18765";
 let nativePort = null;
 
+// Moon Add: Bilibili subtitle tracks sometimes place continuation dots at a cue boundary.
+function cleanBilibiliCaption(content) {
+  return String(content || "").trim()
+    .replace(/^(?:\.{3,}|…{2,})\s*/, "")
+    .replace(/\s*(?:\.{3,}|…{2,})$/, "")
+    .trim();
+}
+
 // Moon Begin: only accept the CID reported by the page's current player. URL p can be stale after Bilibili SPA navigation.
 async function fetchBilibiliSubtitles(identity) {
   const bvid=String(identity?.bvid||"").trim();
@@ -13,7 +21,10 @@ async function fetchBilibiliSubtitles(identity) {
   const subtitleUrl=supported.subtitle_url.startsWith("//")?`https:${supported.subtitle_url}`:supported.subtitle_url;
   const subtitle=await fetch(subtitleUrl).then(response=>response.json());
   const language=/^(en|ai-en)/i.test(supported.lan)?"en":/^(ja|jp|ai-ja|ai-jp)/i.test(supported.lan)?"ja":"zh";
-  const segments=(subtitle.body||[]).filter(item=>item.content?.trim()&&Number.isFinite(item.from)&&Number.isFinite(item.to)&&item.to>item.from).map(item=>({start:item.from,end:item.to,en:item.content.trim(),source_language:language}));
+  const segments=(subtitle.body||[])
+    .filter(item=>Number.isFinite(item.from)&&Number.isFinite(item.to)&&item.to>item.from)
+    .map(item=>({start:item.from,end:item.to,en:cleanBilibiliCaption(item.content),source_language:language}))
+    .filter(item=>item.en);
   return {language,segments};
 }
 // Moon End

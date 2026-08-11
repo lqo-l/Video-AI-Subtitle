@@ -27,6 +27,12 @@ def test_read_bilibili_srt_preserves_japanese_language(tmp_path):
     assert segments[0].source_language == "ja"
 
 
+def test_caption_cleanup_removes_only_edge_continuation_dots():
+    # Moon Add: continuation padding is not part of the displayed subtitle text.
+    assert pipeline._clean_caption("... 今天我想说 ...") == "今天我想说"
+    assert pipeline._clean_caption("中间...省略号") == "中间...省略号"
+
+
 def test_page_subtitles_are_used_before_whisper_fallback(tmp_path, monkeypatch):
     # Moon Add: Bilibili page tracks cover captions yt-dlp may not enumerate.
     page_segments = [Segment(start=0, end=1, en="Page caption", source_language="en")]

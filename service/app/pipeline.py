@@ -171,7 +171,9 @@ def cache_key_from_url(url: str) -> str:
 
 def _clean_caption(text: str) -> str:
     text = re.sub(r"<[^>]+>", "", html.unescape(text))
-    return " ".join(text.replace("\n", " ").split())
+    text = " ".join(text.replace("\n", " ").split())
+    # Moon Add: upstream subtitle tracks can use continuation dots as cue padding.
+    return re.sub(r"(?:\.{3,}|…{2,})$", "", re.sub(r"^(?:\.{3,}|…{2,})", "", text)).strip()
 
 
 def _seconds(value: str) -> float:
@@ -673,6 +675,12 @@ async def process_job(
     if cache_path.exists():
         job.state, job.stage, job.progress = "completed", "已从缓存加载", 100
         job.result = ProcessedVideo.model_validate_json(cache_path.read_text(encoding="utf-8"))
+        if job.result.source == "bilibili_subtitles":
+            # Moon Add: repair existing page-caption caches created before cue-padding cleanup.
+            for segment in job.result.segments:
+                segment.en = _clean_caption(segment.en)
+                segment.zh = _clean_caption(segment.zh)
+            cache_path.write_text(job.result.model_dump_json(indent=2), encoding="utf-8")
         job.preview_segments = job.result.segments
         job.platform = job.result.platform
         job.source_language = job.result.source_language
