@@ -60,6 +60,19 @@ def test_chinese_source_replaces_redundant_language_picker_with_static_label():
     assert "staticLanguage.hidden=!chineseSource" in script
 
 
+def test_popup_checks_latest_github_release_without_self_updating_files():
+    # Moon Add: unpacked extensions may notify users, but Chrome owns local extension replacement.
+    root = Path(__file__).parents[1] / "extension"
+    background = (root / "background.js").read_text(encoding="utf-8")
+    popup = (root / "popup.js").read_text(encoding="utf-8")
+    manifest = (root / "manifest.json").read_text(encoding="utf-8")
+    assert "releases/latest" in background
+    assert "UPDATE_CACHE_MS" in background
+    assert '"check-extension-update"' in background
+    assert 'type:"check-extension-update",force' in popup
+    assert 'https://api.github.com/*' in manifest
+
+
 def test_collapsed_panel_hides_content_without_reflow_flash():
     css = (Path(__file__).parents[1] / "extension" / "content.css").read_text(encoding="utf-8")
     collapsed_rule = next(
