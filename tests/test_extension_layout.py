@@ -35,7 +35,7 @@ def test_bilibili_page_subtitles_are_sent_before_whisper_fallback():
     assert "https://api.bilibili.com/x/player/v2" in background
     assert "x/web-interface/view?bvid=" in background
     assert "const currentPage=pages.find" in background
-    assert "endTime<Math.min(60,duration*.55)" in background
+    assert "endTime<minimumCoverage||endTime>maximumCoverage" in background
     assert "message.identity" in background
     assert "pages?.[page-1]" not in background
     assert "cleanBilibiliCaption" in background

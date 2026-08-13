@@ -71,8 +71,11 @@ async function fetchBilibiliSubtitles(identity) {
     .map(item=>({start:item.from,end:item.to,en:cleanBilibiliCaption(item.content),source_language:language}))
     .filter(item=>item.en);
   const endTime=Math.max(0,...segments.map(item=>item.end));
-  // A 3-minute subtitle track for a 9-minute video is overwhelmingly likely to be stale player data.
-  if(!segments.length||endTime<Math.min(60,duration*.55))return {segments:[]};
+  // A stale Bilibili player response can belong to a shorter or longer video.
+  // Accept only a track whose coverage plausibly matches this exact video's duration.
+  const minimumCoverage=Math.min(60,duration*.55);
+  const maximumCoverage=duration+Math.max(15,duration*.05);
+  if(!segments.length||endTime<minimumCoverage||endTime>maximumCoverage)return {segments:[]};
   return {language,segments,duration};
 }
 // Moon End

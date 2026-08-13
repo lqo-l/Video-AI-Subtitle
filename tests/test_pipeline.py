@@ -25,8 +25,8 @@ def test_bilibili_live_player_cid_scopes_page_subtitle_cache():
 
 
 def test_bilibili_page_caption_cache_schema_invalidates_stale_player_results():
-    # Moon Add: version 3 does not reuse old page-caption caches with unverified video coverage.
-    assert pipeline.CACHE_SCHEMA_VERSION == 3
+    # Moon Modified: version 4 does not reuse page-caption caches without upper/lower coverage validation.
+    assert pipeline.CACHE_SCHEMA_VERSION == 4
 
 
 def test_truncated_media_download_error_is_retryable():
