@@ -1,8 +1,9 @@
 fetch("http://127.0.0.1:18765/health").then(r=>r.json()).then(()=>status.textContent="本机服务已连接").catch(()=>status.textContent="点击处理后将自动启动本机服务");
 // Moon Begin: only show update UI when a newer GitHub Release exists; local unpacked files still require a manual reinstall.
 let updateInfo=null;
-const updateBox=document.querySelector("#update"), updateTitle=document.querySelector("#update_title"), updateNote=document.querySelector("#update_note"), checkUpdate=document.querySelector("#check_update"), openUpdate=document.querySelector("#open_update");
+const updateBox=document.querySelector("#update"), updateTitle=document.querySelector("#update_title"), updateNote=document.querySelector("#update_note"), checkUpdate=document.querySelector("#check_update"), openUpdate=document.querySelector("#open_update"), updateStatus=document.querySelector("#update_status");
 async function refreshUpdate(force=false){
+  updateStatus.classList.remove("show");
   checkUpdate.disabled=true;
   try{
     updateInfo=await chrome.runtime.sendMessage({type:"check-extension-update",force});
@@ -12,8 +13,14 @@ async function refreshUpdate(force=false){
       updateNote.textContent=`当前 v${updateInfo.currentVersion} · 下载后按安装说明更新扩展`;
     }else{
       updateBox.classList.remove("show");
+      updateStatus.textContent=updateInfo?.error||`已是最新版本 v${updateInfo?.currentVersion||chrome.runtime.getManifest().version}`;
+      updateStatus.classList.add("show");
     }
-  }catch(_){ updateBox.classList.remove("show"); }
+  }catch(_){
+    updateBox.classList.remove("show");
+    updateStatus.textContent="暂时无法检查更新";
+    updateStatus.classList.add("show");
+  }
   finally{checkUpdate.disabled=false;}
 }
 openUpdate.onclick=()=>{if(updateInfo?.url)chrome.tabs.create({url:updateInfo.url});};

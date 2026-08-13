@@ -33,6 +33,9 @@ def test_bilibili_page_subtitles_are_sent_before_whisper_fallback():
     assert "无法确认 B 站当前播放器" in script
     assert "page_subtitles:pageSubtitles.segments" in script
     assert "https://api.bilibili.com/x/player/v2" in background
+    assert "x/web-interface/view?bvid=" in background
+    assert "const currentPage=pages.find" in background
+    assert "endTime<Math.min(60,duration*.55)" in background
     assert "message.identity" in background
     assert "pages?.[page-1]" not in background
     assert "cleanBilibiliCaption" in background
@@ -70,6 +73,8 @@ def test_popup_checks_latest_github_release_without_self_updating_files():
     assert "UPDATE_CACHE_MS" in background
     assert '"check-extension-update"' in background
     assert 'type:"check-extension-update",force' in popup
+    assert "已是最新版本" in popup
+    assert "UPDATE_TIMEOUT_MS" in background
     assert 'https://api.github.com/*' in manifest
 
 

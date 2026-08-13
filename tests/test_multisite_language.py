@@ -293,5 +293,5 @@ def test_bilibili_japanese_pipeline_writes_site_specific_cache(tmp_path, monkeyp
     assert job.result.source_language == "ja"
     assert job.result.source == "bilibili_subtitles"
     assert job.result.segments[0].zh == "测试"
-    assert (cache_dir / "bilibili_BV1test123_p2.v2.json").exists()
+    assert (cache_dir / "bilibili_BV1test123_p2.v3.json").exists()
 # Moon End

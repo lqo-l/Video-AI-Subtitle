@@ -24,6 +24,11 @@ def test_bilibili_live_player_cid_scopes_page_subtitle_cache():
     assert cache_key_from_url(url) == "bilibili_BV1GJ411x7h7_cid987654"
 
 
+def test_bilibili_page_caption_cache_schema_invalidates_stale_player_results():
+    # Moon Add: version 3 does not reuse old page-caption caches with unverified video coverage.
+    assert pipeline.CACHE_SCHEMA_VERSION == 3
+
+
 def test_truncated_media_download_error_is_retryable():
     # Moon Add: an advertised length larger than the received bytes is a transient CDN failure.
     assert pipeline._is_retryable_media_download_error(

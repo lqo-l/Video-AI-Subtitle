@@ -43,7 +43,7 @@ CUDA_PACKAGES = (
     ("nvidia-cudnn-cu12", "cuDNN 9"),
     ("nvidia-cuda-nvrtc-cu12", "CUDA NVRTC 12"),
 )  # Moon Add
-CACHE_SCHEMA_VERSION = 2  # Moon Add: invalidate pre-normalization subtitle caches.
+CACHE_SCHEMA_VERSION = 3  # Moon Modified: discard page-caption caches that could have been populated by a stale Bilibili player response.
 SUPPORTED_LANGUAGES = ("en", "ja", "zh")
 WHISPER_MODEL_ENDPOINTS = (
     ("HF 镜像", "https://hf-mirror.com"),

@@ -3,6 +3,7 @@ let nativePort = null;
 const UPDATE_API = "https://api.github.com/repos/lqo-l/Video-AI-Subtitle/releases/latest";
 const UPDATE_CACHE_KEY = "ytbaExtensionUpdate";
 const UPDATE_CACHE_MS = 6 * 60 * 60 * 1000;
+const UPDATE_TIMEOUT_MS = 6000;
 
 // Moon Begin: unpacked extensions cannot self-replace, but can safely direct users to a verified release.
 function compareVersions(left, right) {
@@ -19,7 +20,10 @@ async function checkExtensionUpdate(force = false) {
   const cached = (await chrome.storage.local.get(UPDATE_CACHE_KEY))[UPDATE_CACHE_KEY];
   if (!force && cached?.currentVersion === currentVersion && Date.now() - cached.checkedAt < UPDATE_CACHE_MS) return cached;
   try {
-    const response = await fetch(UPDATE_API, {headers: {Accept: "application/vnd.github+json"}});
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), UPDATE_TIMEOUT_MS);
+    const response = await fetch(UPDATE_API, {headers: {Accept: "application/vnd.github+json"}, signal: controller.signal});
+    clearTimeout(timeout);
     if (!response.ok) throw new Error(`GitHub ${response.status}`);
     const release = await response.json();
     const latestVersion = String(release.tag_name || "").replace(/^v/i, "");
@@ -48,6 +52,13 @@ async function fetchBilibiliSubtitles(identity) {
   const bvid=String(identity?.bvid||"").trim();
   const cid=Number(identity?.cid);
   if(!/^BV[0-9A-Za-z]+$/i.test(bvid)||!Number.isSafeInteger(cid)||cid<=0)return {segments:[]};
+  // Moon Begin: a stale player request can return a subtitle URL for another video.
+  // Verify the live CID belongs to the URL's BVID and retain duration for subtitle coverage validation.
+  const view=await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`).then(response=>response.json());
+  const pages=view?.data?.pages||[];
+  const currentPage=pages.find(page=>Number(page?.cid)===cid);
+  const duration=Number(currentPage?.duration||view?.data?.duration||0);
+  if(!currentPage||!Number.isFinite(duration)||duration<=0)return {segments:[]};
   const player=await fetch(`https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(bvid)}&cid=${cid}`).then(response=>response.json());
   const tracks=player?.data?.subtitle?.subtitles||[];
   const supported=tracks.find(track=>/^(en|ai-en)/i.test(track.lan))||tracks.find(track=>/^(ja|jp|ai-ja|ai-jp)/i.test(track.lan))||tracks.find(track=>/^(zh|cn|ai-zh|ai-cn)/i.test(track.lan));
@@ -59,7 +70,10 @@ async function fetchBilibiliSubtitles(identity) {
     .filter(item=>Number.isFinite(item.from)&&Number.isFinite(item.to)&&item.to>item.from)
     .map(item=>({start:item.from,end:item.to,en:cleanBilibiliCaption(item.content),source_language:language}))
     .filter(item=>item.en);
-  return {language,segments};
+  const endTime=Math.max(0,...segments.map(item=>item.end));
+  // A 3-minute subtitle track for a 9-minute video is overwhelmingly likely to be stale player data.
+  if(!segments.length||endTime<Math.min(60,duration*.55))return {segments:[]};
+  return {language,segments,duration};
 }
 // Moon End
 
