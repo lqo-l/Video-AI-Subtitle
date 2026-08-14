@@ -43,7 +43,7 @@ CUDA_PACKAGES = (
     ("nvidia-cudnn-cu12", "cuDNN 9"),
     ("nvidia-cuda-nvrtc-cu12", "CUDA NVRTC 12"),
 )  # Moon Add
-CACHE_SCHEMA_VERSION = 4  # Moon Modified: discard Bilibili page-caption caches that lacked upper-bound duration validation.
+CACHE_SCHEMA_VERSION = 5  # Moon Modified: Bilibili now uses audio recognition only; never reuse page-caption caches.
 SUPPORTED_LANGUAGES = ("en", "ja", "zh")
 WHISPER_MODEL_ENDPOINTS = (
     ("HF 镜像", "https://hf-mirror.com"),
@@ -313,7 +313,7 @@ def _download(url: str, directory: Path) -> tuple[dict, list[Segment], Path | No
     with yt_dlp.YoutubeDL(common) as ydl:
         info = ydl.extract_info(url, download=False)
     captions = {**(info.get("automatic_captions", {}) or {}), **(info.get("subtitles", {}) or {})}
-    selected = _select_caption(captions)
+    selected = _select_caption(captions) if platform_from_url(url) != "bilibili" else None
     if selected:
         subtitle_key, language = selected
         options = common | {
@@ -767,20 +767,12 @@ async def process_job(
         temp.mkdir(parents=True, exist_ok=True)
         try:
             job.state, job.stage, job.progress = "running", "读取视频信息与字幕", 8
-            # Moon Add: Bilibili's active page can expose a subtitle track that yt-dlp
-            # does not list. Prefer it before falling back to local Whisper recognition.
-            if platform == "bilibili" and page_subtitles:
-                extracted = page_subtitles
-                source = "bilibili_subtitles"
-                source_language = page_subtitle_language or page_subtitles[0].source_language
-                job.stage, job.progress = "已读取 B 站页面字幕", 50
-                info = {"title": video_id, "duration": None}
-                audio = None
-            else:
-                info, extracted, audio = await asyncio.to_thread(_download, url, temp)
-                await control.checkpoint()
-                source = info.get("_ytba_source", f"{platform}_subtitles")
-                source_language = info.get("_ytba_language", "en")
+            # Moon Modified: Bilibili's SPA can expose another video session's captions.
+            # Always download this URL's audio and run local Whisper instead of trusting page data.
+            info, extracted, audio = await asyncio.to_thread(_download, url, temp)
+            await control.checkpoint()
+            source = info.get("_ytba_source", f"{platform}_subtitles")
+            source_language = info.get("_ytba_language", "en")
             if not extracted:
                 config = load_config()
                 # Moon Begin: distinguish first-run model download from transcription.

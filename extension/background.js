@@ -1,5 +1,6 @@
 const API = "http://127.0.0.1:18765";
 let nativePort = null;
+const serviceLeases = new Set();
 const UPDATE_API = "https://api.github.com/repos/lqo-l/Video-AI-Subtitle/releases/latest";
 const UPDATE_CACHE_KEY = "ytbaExtensionUpdate";
 const UPDATE_CACHE_MS = 6 * 60 * 60 * 1000;
@@ -39,54 +40,20 @@ async function checkExtensionUpdate(force = false) {
 }
 // Moon End
 
-// Moon Add: Bilibili subtitle tracks sometimes place continuation dots at a cue boundary.
-function cleanBilibiliCaption(content) {
-  return String(content || "").trim()
-    .replace(/^(?:\.{3,}|…{2,})\s*/, "")
-    .replace(/\s*(?:\.{3,}|…{2,})$/, "")
-    .trim();
-}
-
-// Moon Begin: only accept the CID reported by the page's current player. URL p can be stale after Bilibili SPA navigation.
-async function fetchBilibiliSubtitles(identity) {
-  const bvid=String(identity?.bvid||"").trim();
-  const cid=Number(identity?.cid);
-  if(!/^BV[0-9A-Za-z]+$/i.test(bvid)||!Number.isSafeInteger(cid)||cid<=0)return {segments:[]};
-  // Moon Begin: a stale player request can return a subtitle URL for another video.
-  // Verify the live CID belongs to the URL's BVID and retain duration for subtitle coverage validation.
-  const view=await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`).then(response=>response.json());
-  const pages=view?.data?.pages||[];
-  const currentPage=pages.find(page=>Number(page?.cid)===cid);
-  const duration=Number(currentPage?.duration||view?.data?.duration||0);
-  if(!currentPage||!Number.isFinite(duration)||duration<=0)return {segments:[]};
-  const player=await fetch(`https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(bvid)}&cid=${cid}`).then(response=>response.json());
-  const tracks=player?.data?.subtitle?.subtitles||[];
-  const supported=tracks.find(track=>/^(en|ai-en)/i.test(track.lan))||tracks.find(track=>/^(ja|jp|ai-ja|ai-jp)/i.test(track.lan))||tracks.find(track=>/^(zh|cn|ai-zh|ai-cn)/i.test(track.lan));
-  if(!supported?.subtitle_url)return {segments:[]};
-  const subtitleUrl=supported.subtitle_url.startsWith("//")?`https:${supported.subtitle_url}`:supported.subtitle_url;
-  const subtitle=await fetch(subtitleUrl).then(response=>response.json());
-  const language=/^(en|ai-en)/i.test(supported.lan)?"en":/^(ja|jp|ai-ja|ai-jp)/i.test(supported.lan)?"ja":"zh";
-  const segments=(subtitle.body||[])
-    .filter(item=>Number.isFinite(item.from)&&Number.isFinite(item.to)&&item.to>item.from)
-    .map(item=>({start:item.from,end:item.to,en:cleanBilibiliCaption(item.content),source_language:language}))
-    .filter(item=>item.en);
-  const endTime=Math.max(0,...segments.map(item=>item.end));
-  // A stale Bilibili player response can belong to a shorter or longer video.
-  // Accept only a track whose coverage plausibly matches this exact video's duration.
-  const minimumCoverage=Math.min(60,duration*.55);
-  const maximumCoverage=duration+Math.max(15,duration*.05);
-  if(!segments.length||endTime<minimumCoverage||endTime>maximumCoverage)return {segments:[]};
-  return {language,segments,duration};
-}
-// Moon End
-
 // Moon Begin: Chrome launches the registered local host only while work is active.
-function ensureService(sendResponse) {
+function serviceLeaseKey(message) {
+  return String(message.leaseId || "");
+}
+
+function ensureService(sendResponse, message) {
   let answered = false;
+  const leaseId = serviceLeaseKey(message);
+  if (leaseId) serviceLeases.add(leaseId);
   if (!nativePort) {
     nativePort = chrome.runtime.connectNative("com.moon.youtube_bilingual_assistant");
     nativePort.onDisconnect.addListener(() => {
       nativePort = null;
+      serviceLeases.clear();
       if (!answered) {
         answered = true;
         sendResponse({ok:false, error:chrome.runtime.lastError?.message || "本机启动器连接中断"});
@@ -101,16 +68,26 @@ function ensureService(sendResponse) {
   nativePort.onMessage.addListener(listener);
   nativePort.postMessage({action: "start"});
 }
+
+function releaseService(message) {
+  const leaseId = serviceLeaseKey(message);
+  if (!leaseId) return;
+  serviceLeases.delete(leaseId);
+  // Moon Add: one completed tab must never terminate another tab's active translation.
+  if (!serviceLeases.size) {
+    nativePort?.disconnect();
+    nativePort = null;
+  }
+}
 // Moon End
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ensure-service") {
-    ensureService(sendResponse);
+    ensureService(sendResponse, message);
     return true;
   }
   if (message.type === "release-service") {
-    nativePort?.disconnect();
-    nativePort = null;
+    releaseService(message);
     sendResponse({ok: true});
   }
   if (message.type === "notify") {
@@ -129,10 +106,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       saveAs: true
     });
     sendResponse({ ok: true });
-  }
-  if(message.type==="fetch-bilibili-subtitles"){
-    fetchBilibiliSubtitles(message.identity).then(sendResponse).catch(error=>sendResponse({segments:[],error:error.message}));
-    return true;
   }
   if(message.type==="check-extension-update"){
     checkExtensionUpdate(Boolean(message.force)).then(sendResponse);

@@ -18,6 +18,8 @@
   let transcriptComplete = false;
   let summaryComplete = false;
   let layoutAnimationFrame = 0;
+  // Moon Add: a page-owned lease keeps the shared native service alive while this tab has a job.
+  const serviceLeaseId=`ytba-${crypto.randomUUID()}`;
   const defaultSubtitlePrefs = {visible:true, language:"bilingual", fontScale:1, bottom:10, background:false};
   let subtitlePrefs = {...defaultSubtitlePrefs};
   // Moon Add: persist the sidebar edge and user-selected width across videos.
@@ -72,7 +74,7 @@
 
   async function ensureService() {
     // Moon Add: ask the native host to start, then wait until HTTP is ready.
-    const response = await safeSendMessage({type:"ensure-service"});
+    const response = await safeSendMessage({type:"ensure-service",leaseId:serviceLeaseId});
     if (!response?.ok) throw new Error(response?.error || "本机启动器不可用，请运行 install-native-host.ps1");
     for (let attempt = 0; attempt < 30; attempt++) {
       try { await api("/health"); return; } catch (_) { await new Promise(resolve => setTimeout(resolve, 300)); }
@@ -90,34 +92,7 @@
     document.body.appendChild(box);
   }
 
-  async function getBilibiliPageSubtitles(){
-    if(site!=="bilibili")return {segments:[]};
-    try{
-      // Moon Add: the main-world helper returns the active player CID, not a URL-derived part number.
-      const identity=await new Promise(resolve=>{
-        const receive=event=>resolve(event.detail||null);
-        window.addEventListener("ytba:bilibili-playback-identity",receive,{once:true});
-        window.dispatchEvent(new Event("ytba:get-bilibili-playback-identity"));
-        setTimeout(()=>resolve(null),400);
-      });
-      if(!identity)return {segments:[],identityAvailable:false};
-      const response=await safeSendMessage({type:"fetch-bilibili-subtitles",identity});
-      return Array.isArray(response?.segments)?{...response,cid:identity.cid,identityAvailable:true}:{segments:[],identityAvailable:true};
-    }catch(error){console.warn("[YTBA] Bilibili page subtitles unavailable:",error);return {segments:[],identityAvailable:false};}
-  }
-
-  function requireBilibiliPlaybackIdentity(pageSubtitles){
-    // Moon Add: without a live CID, falling back to URL p could show another SPA video part's captions.
-    if(site==="bilibili"&&!pageSubtitles.identityAvailable)throw new Error("无法确认 B 站当前播放器，请刷新页面后重试");
-  }
-
-  function jobUrlForPageSubtitles(pageSubtitles){
-    if(site!=="bilibili"||!Number.isSafeInteger(Number(pageSubtitles?.cid)))return location.href;
-    // Moon Add: scope cached page captions to the exact player CID, not an SPA-stale p query parameter.
-    const url=new URL(location.href);
-    url.searchParams.set("ytba_cid",String(pageSubtitles.cid));
-    return url.href;
-  }
+  function releaseService(){ return safeSendMessage({type:"release-service",leaseId:serviceLeaseId}); }
 
   // Moon Begin: Bilibili uses a quiet draggable launcher instead of a modal prompt.
   function showLauncher() {
@@ -296,7 +271,7 @@
     panelCollapsed=false;playbackReady=false;overlay=null;job=null;result=null;
     window.dispatchEvent(new Event("resize"));
     try{if(activeJob)await api(`/jobs/${activeJob}/cancel`,{method:"POST"});}catch(error){console.warn("[YTBA] close cancel failed:",error);}
-    safeSendMessage({type:"release-service"}).catch(()=>{});
+    releaseService().catch(()=>{});
     // Moon End
   }
 
@@ -532,7 +507,7 @@
 
   async function cancelCurrentJob(){
     if(!job||!confirm("取消当前任务？已完成的字幕、翻译与摘要进度会保留，可稍后重试。"))return;
-    try{job=await api(`/jobs/${job.id}/cancel`,{method:"POST"});clearTimeout(pollTimer);refreshTaskControls();updateStatus(job.stage,job.progress);safeSendMessage({type:"release-service"});}
+    try{job=await api(`/jobs/${job.id}/cancel`,{method:"POST"});clearTimeout(pollTimer);refreshTaskControls();updateStatus(job.stage,job.progress);releaseService();}
     catch(error){updateStatus("取消失败",job.progress,error.message);}
   }
   // Moon End
@@ -550,14 +525,13 @@
     try {
       updateStatus("正在启动本机服务", 2);
       await ensureService();
-      if(assistantDismissed){safeSendMessage({type:"release-service"}).catch(()=>{});return;}
-      const pageSubtitles=await getBilibiliPageSubtitles();
-      requireBilibiliPlaybackIdentity(pageSubtitles);
-      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:jobUrlForPageSubtitles(pageSubtitles),page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
-      if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});safeSendMessage({type:"release-service"}).catch(()=>{});return;}
+      if(assistantDismissed){releaseService().catch(()=>{});return;}
+      // Moon Add: Bilibili's SPA may expose stale subtitle data; use the current URL's audio and Whisper only.
+      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:location.href})});
+      if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});releaseService().catch(()=>{});return;}
       job=createdJob;
       poll();
-    } catch (error) { safeSendMessage({type:"release-service"}); updateStatus("无法启动", 0, error.message); }
+    } catch (error) { releaseService(); updateStatus("无法启动", 0, error.message); }
   }
 
   async function retryFromCheckpoint() {
@@ -568,7 +542,7 @@
     if(button)button.disabled=true;
     updateStatus("正在读取上次进度…",2);
     try {
-      await safeSendMessage({type:"release-service"});
+      await releaseService();
       await new Promise(resolve=>setTimeout(resolve,350));
       if(assistantDismissed)return;
       job=null;
@@ -579,11 +553,9 @@
       transcriptComplete=false;
       summaryComplete=false;
       await ensureService();
-      if(assistantDismissed){safeSendMessage({type:"release-service"}).catch(()=>{});return;}
-      const pageSubtitles=await getBilibiliPageSubtitles();
-      requireBilibiliPlaybackIdentity(pageSubtitles);
-      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:jobUrlForPageSubtitles(pageSubtitles),page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
-      if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});safeSendMessage({type:"release-service"}).catch(()=>{});return;}
+      if(assistantDismissed){releaseService().catch(()=>{});return;}
+      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:location.href})});
+      if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});releaseService().catch(()=>{});return;}
       job=createdJob;
       poll();
     } catch(error) {
@@ -639,9 +611,9 @@
         playButton.hidden=completionNoticeDismissed;
         root.querySelector(".ytba-status").hidden=completionNoticeDismissed;
         safeSendMessage({type:"notify", message:`《${result.title}》处理完成，请手动播放。`});
-        safeSendMessage({type:"release-service"});
+        releaseService();
       } else if (["failed","cancelled"].includes(job.state)) {
-        safeSendMessage({type:"release-service"});
+        releaseService();
       } else if (job.state === "paused") {
         pollTimer=setTimeout(poll,1500);
       } else if (job.state !== "failed") {
@@ -735,7 +707,7 @@
 
   function watchNavigation() {
     if (location.href === lastUrl) return;
-    if(lastUrl&&job?.state==="running")safeSendMessage({type:"release-service"}).catch(()=>{});
+    if(lastUrl&&job?.state==="running")releaseService().catch(()=>{});
     lastUrl = location.href;
     const player = video();
     if (player && playbackReady) player.removeEventListener("timeupdate", syncSubtitle);

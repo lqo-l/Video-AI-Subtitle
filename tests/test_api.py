@@ -87,8 +87,8 @@ def test_clear_cache_preserves_config(tmp_path, monkeypatch):
     # Moon Add: cache cleanup must never remove the API configuration.
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
-    (cache_dir / "video-a.v4.json").write_text("{}", encoding="utf-8")
-    (cache_dir / "video-b.v4.json").write_text("{}", encoding="utf-8")
+    (cache_dir / "video-a.v5.json").write_text("{}", encoding="utf-8")
+    (cache_dir / "video-b.v5.json").write_text("{}", encoding="utf-8")
     config_path = tmp_path / "config.json"
     config_path.write_text('{"api_key":"keep-me"}', encoding="utf-8")
     monkeypatch.setattr(main, "CACHE_DIR", cache_dir)

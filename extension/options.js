@@ -8,9 +8,10 @@ let modelRequestActive=false;
 let cudaRequestActive=false;
 let serviceReady=false;
 const byId=id=>document.getElementById(id);
+const serviceLeaseId=`ytba-options-${crypto.randomUUID()}`;
 const humanSize=value=>{const amount=Number(value)||0;if(amount>=1024**3)return `${(amount/1024**3).toFixed(2)} GB`;if(amount>=1024**2)return `${(amount/1024**2).toFixed(1)} MB`;if(amount>=1024)return `${(amount/1024).toFixed(1)} KB`;return `${Math.round(amount)} B`;};
 
-async function ensureService(){if(serviceReady){try{await request("/health");return;}catch(_){serviceReady=false;}}const response=await chrome.runtime.sendMessage({type:"ensure-service"});if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));serviceReady=true;}
+async function ensureService(){if(serviceReady){try{await request("/health");return;}catch(_){serviceReady=false;}}const response=await chrome.runtime.sendMessage({type:"ensure-service",leaseId:serviceLeaseId});if(!response?.ok)throw new Error(response?.error||"本机启动器不可用");await new Promise(resolve=>setTimeout(resolve,500));serviceReady=true;}
 async function request(path,options={}){const response=await fetch(`${API}${path}`,options);if(!response.ok)throw new Error((await response.json().catch(()=>null))?.detail||`服务错误 ${response.status}`);return response.json();}
 function renderModel(data,query=modelQuery()){
   const running=data.state==="running";
@@ -189,7 +190,7 @@ async function restorePrompt(kind){
 restore_translation_prompt.onclick=()=>restorePrompt("translation");
 restore_summary_prompt.onclick=()=>restorePrompt("summary");
 reset_translation.onclick=()=>{translation_model.value="deepseek-v4-flash";message.textContent="已恢复默认值，请点击保存设置";};
-window.addEventListener("beforeunload",()=>chrome.runtime.sendMessage({type:"release-service"}));
+window.addEventListener("beforeunload",()=>chrome.runtime.sendMessage({type:"release-service",leaseId:serviceLeaseId}));
 form.onsubmit=async event=>{
   event.preventDefault();message.textContent="保存中…";
   try{
