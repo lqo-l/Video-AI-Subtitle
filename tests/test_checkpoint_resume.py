@@ -18,7 +18,7 @@ def test_resume_uses_extraction_and_summary_checkpoint(tmp_path, monkeypatch):
     work_dir = tmp_path / "work"
     cache_dir.mkdir()
     work_dir.mkdir()
-    checkpoint = cache_dir / "resume.partial.v5.json"
+    checkpoint = cache_dir / "resume.partial.v6.json"
     checkpoint.write_text(
         json.dumps(
             {
@@ -81,7 +81,7 @@ def test_resume_uses_extraction_and_summary_checkpoint(tmp_path, monkeypatch):
     assert job.result.segments[1].zh == "二"
     assert job.summary_state == "completed"
     assert not checkpoint.exists()
-    assert (cache_dir / "resume.v5.json").exists()
+    assert (cache_dir / "resume.v6.json").exists()
 
 
 def test_completed_summary_checkpoint_skips_summary_model(tmp_path, monkeypatch):
@@ -89,7 +89,7 @@ def test_completed_summary_checkpoint_skips_summary_model(tmp_path, monkeypatch)
     work_dir = tmp_path / "work"
     cache_dir.mkdir()
     work_dir.mkdir()
-    (cache_dir / "done.partial.v5.json").write_text(
+    (cache_dir / "done.partial.v6.json").write_text(
         json.dumps(
             {
                 "title": "Done Test",

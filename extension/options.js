@@ -178,6 +178,8 @@ reset_model_dir.onclick=()=>resetStorageDirectory("model");
 reset_cuda_dir.onclick=()=>resetStorageDirectory("cuda");
 open_cuda.onclick=async()=>{try{await request("/cuda/open",{method:"POST"});}catch(error){cuda_detail.textContent=`无法打开运行库文件夹：${error.message}`;}};
 open_prompts.onclick=async()=>{try{await request("/prompts/open",{method:"POST"});}catch(error){message.textContent=`无法打开提示词文件夹：${error.message}`;}};
+// Moon Add: persistent operation logs are the first troubleshooting destination.
+open_diagnostics.onclick=async()=>{try{await request("/diagnostics/open",{method:"POST"});}catch(error){message.textContent=`无法打开诊断日志文件夹：${error.message}`;}};
 async function restorePrompt(kind){
   const label=kind==="translation"?"翻译":"摘要";
   if(!confirm(`恢复默认${label}提示词？当前文件内容将被覆盖。`))return;

@@ -40,6 +40,97 @@ async function checkExtensionUpdate(force = false) {
 }
 // Moon End
 
+// Moon Begin: resolve Bilibili captions from the URL-authoritative resource API.
+// Never use a live player object or a recent network request as the source of a
+// CID: both can remain from the previous SPA video/part after navigation.
+function bilibiliCaptionLanguage(value) {
+  const language = String(value || "").toLowerCase();
+  if (/^(en|ai-en)/.test(language)) return "en";
+  if (/^(ja|jp|ai-ja|ai-jp)/.test(language)) return "ja";
+  if (/^(zh|cn|ai-zh|ai-cn)/.test(language)) return "zh";
+  return null;
+}
+
+function cleanBilibiliCaption(content) {
+  return String(content || "").trim()
+    .replace(/^(?:\.{3,}|…{2,})\s*/, "")
+    .replace(/\s*(?:\.{3,}|…{2,})$/, "")
+    .trim();
+}
+
+async function fetchBilibiliJson(url) {
+  // Moon Add: some Bilibili AI-generated tracks are exposed only to the
+  // currently signed-in browser session. Keep credentials inside Chrome; never
+  // read, store, or transmit SESSDATA ourselves.
+  const response = await fetch(url, {cache: "no-store", credentials: "include"});
+  if (!response.ok) throw new Error(`B站接口 ${response.status}`);
+  const payload = await response.json();
+  if (Number(payload?.code || 0) !== 0) throw new Error(payload?.message || "B站接口返回失败");
+  return payload.data;
+}
+
+async function resolveBilibiliUrlResource(rawUrl) {
+  const url = new URL(rawUrl);
+  const bvid = url.pathname.match(/\/video\/(BV[0-9A-Za-z]+)/i)?.[1];
+  const aid = url.pathname.match(/\/video\/av(\d+)/i)?.[1];
+  if (bvid || aid) {
+    const resourceQuery = bvid ? `bvid=${encodeURIComponent(bvid)}` : `aid=${encodeURIComponent(aid)}`;
+    const view = await fetchBilibiliJson(`https://api.bilibili.com/x/web-interface/view?${resourceQuery}`);
+    const part = Math.max(1, Number.parseInt(url.searchParams.get("p") || "1", 10) || 1);
+    const page = view?.pages?.[part - 1];
+    if (!Number.isSafeInteger(Number(page?.cid)) || Number(page.cid) <= 0) {
+      throw new Error("无法从当前链接确认 B 站视频分 P");
+    }
+    if (!view?.bvid) throw new Error("无法确认 B 站视频资源");
+    return {bvid: view.bvid, cid: Number(page.cid), duration: Number(page.duration || view.duration || 0)};
+  }
+
+  const epId = url.pathname.match(/\/bangumi\/play\/ep(\d+)/i)?.[1];
+  if (epId) {
+    const season = await fetchBilibiliJson(`https://api.bilibili.com/pgc/view/web/season?ep_id=${encodeURIComponent(epId)}`);
+    const episode = (season?.episodes || []).find(item => String(item?.id) === epId);
+    if (!episode?.bvid || !Number.isSafeInteger(Number(episode.cid)) || Number(episode.cid) <= 0) {
+      throw new Error("无法从当前番剧链接确认视频资源");
+    }
+    return {bvid: episode.bvid, cid: Number(episode.cid), duration: Number(episode.duration || 0) / 1000};
+  }
+  throw new Error("不支持的 B 站视频链接");
+}
+
+async function fetchBilibiliSubtitles(rawUrl) {
+  const resource = await resolveBilibiliUrlResource(rawUrl);
+  const player = await fetchBilibiliJson(
+    `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(resource.bvid)}&cid=${resource.cid}`
+  );
+  const tracks = Array.isArray(player?.subtitle?.subtitles) ? player.subtitle.subtitles : [];
+  const ranked = tracks.map(track => ({track, language: bilibiliCaptionLanguage(track?.lan)}))
+    .filter(item => item.language && item.track?.subtitle_url)
+    .sort((left, right) => ["en", "ja", "zh"].indexOf(left.language) - ["en", "ja", "zh"].indexOf(right.language));
+  const selected = ranked[0];
+  if (!selected) return {segments: [], identity: resource};
+
+  const subtitleUrl = selected.track.subtitle_url.startsWith("//")
+    ? `https:${selected.track.subtitle_url}` : selected.track.subtitle_url;
+  const response = await fetch(subtitleUrl, {cache: "no-store", credentials: "include"});
+  if (!response.ok) throw new Error(`B站字幕文件 ${response.status}`);
+  const subtitle = await response.json();
+  const segments = (Array.isArray(subtitle?.body) ? subtitle.body : [])
+    .filter(item => Number.isFinite(item?.from) && Number.isFinite(item?.to) && item.to > item.from)
+    .map(item => ({start: item.from, end: item.to, en: cleanBilibiliCaption(item.content), source_language: selected.language}))
+    .filter(item => item.en);
+
+  // A valid track should cover a meaningful part of the URL-authoritative resource.
+  const endTime = Math.max(0, ...segments.map(item => item.end));
+  const duration = resource.duration;
+  const minimumCoverage = Math.min(60, duration * .55);
+  const maximumCoverage = duration + Math.max(15, duration * .05);
+  if (!segments.length || (duration > 0 && (endTime < minimumCoverage || endTime > maximumCoverage))) {
+    return {segments: [], identity: resource};
+  }
+  return {segments, language: selected.language, identity: resource};
+}
+// Moon End
+
 // Moon Begin: Chrome launches the registered local host only while work is active.
 function serviceLeaseKey(message) {
   return String(message.leaseId || "");
@@ -106,6 +197,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       saveAs: true
     });
     sendResponse({ ok: true });
+  }
+  if (message.type === "fetch-bilibili-subtitles") {
+    fetchBilibiliSubtitles(message.url).then(sendResponse).catch(error => sendResponse({segments: [], error: error.message}));
+    return true;
   }
   if(message.type==="check-extension-update"){
     checkExtensionUpdate(Boolean(message.force)).then(sendResponse);

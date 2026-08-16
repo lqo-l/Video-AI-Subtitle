@@ -10,7 +10,8 @@ internal static class Program
 {
     private static Process service;
     private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
-    private static readonly string LogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YouTubeBilingualAssistant", "native-service.log");
+    // Moon Modified: keep launcher output with the rest of the user-facing diagnostics.
+    private static readonly string LogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YouTubeBilingualAssistant", "logs", "native-service.log");
 
     private static void Main()
     {
@@ -43,7 +44,7 @@ internal static class Program
         string projectRoot = Directory.GetParent(hostDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;
         string python = Path.Combine(projectRoot, ".venv", "Scripts", "python.exe");
         if (!File.Exists(python)) throw new FileNotFoundException("请先运行 scripts\\install.ps1", python);
-        Directory.CreateDirectory(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YouTubeBilingualAssistant"));
+        Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
         ProcessStartInfo startInfo = new ProcessStartInfo
         {
             FileName = python,

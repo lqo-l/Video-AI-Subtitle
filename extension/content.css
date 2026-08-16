@@ -16,6 +16,8 @@ body.ytba-launcher-right #ytba-launcher { right:0;border-right:0;border-radius:1
 body.ytba-launcher-left #ytba-launcher { left:0;border-left:0;border-radius:0 14px 14px 0; }
 #ytba-launcher:hover { filter:brightness(1.08);box-shadow:0 11px 29px rgba(31,76,180,.42),inset 0 1px rgba(255,255,255,.25); }
 #ytba-launcher.dragging { cursor:grabbing;filter:brightness(1.12); }
+/* Moon Add: an idle launcher is not a playback control and must not appear over fullscreen video. */
+body.ytba-fullscreen #ytba-launcher { display:none; }
 #ytba-root * { box-sizing: border-box; }
 .ytba-resize-handle { position:absolute; z-index:4; top:0; bottom:0; left:-5px; width:10px; cursor:ew-resize; touch-action:none; }
 .ytba-resize-handle::after { content:""; position:absolute; top:42%; bottom:42%; left:4px; width:2px; border-radius:2px; background:#7198ef; opacity:0; transition:opacity .18s ease; }

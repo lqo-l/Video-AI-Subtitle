@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, urlparse
@@ -21,6 +22,7 @@ import yt_dlp
 from faster_whisper import WhisperModel
 
 from .config import CACHE_DIR, WORK_DIR, load_config, resolve_install_dir
+from .diagnostics import log_event, log_exception
 from .llm import LlmClient
 from .models import CudaRuntimeStatus, JobView, LocalModelInfo, ModelStatus, ProcessedVideo, Segment
 
@@ -43,7 +45,7 @@ CUDA_PACKAGES = (
     ("nvidia-cudnn-cu12", "cuDNN 9"),
     ("nvidia-cuda-nvrtc-cu12", "CUDA NVRTC 12"),
 )  # Moon Add
-CACHE_SCHEMA_VERSION = 5  # Moon Modified: Bilibili now uses audio recognition only; never reuse page-caption caches.
+CACHE_SCHEMA_VERSION = 6  # Moon Modified: Bilibili page captions now use URL-authoritative CID resolution.
 SUPPORTED_LANGUAGES = ("en", "ja", "zh")
 WHISPER_MODEL_ENDPOINTS = (
     ("HF 镜像", "https://hf-mirror.com"),
@@ -767,12 +769,19 @@ async def process_job(
         temp.mkdir(parents=True, exist_ok=True)
         try:
             job.state, job.stage, job.progress = "running", "读取视频信息与字幕", 8
-            # Moon Modified: Bilibili's SPA can expose another video session's captions.
-            # Always download this URL's audio and run local Whisper instead of trusting page data.
-            info, extracted, audio = await asyncio.to_thread(_download, url, temp)
-            await control.checkpoint()
-            source = info.get("_ytba_source", f"{platform}_subtitles")
-            source_language = info.get("_ytba_language", "en")
+            # Moon Modified: Bilibili page captions are accepted only after the extension
+            # resolves the URL's own BVID/part (or EP) to a CID via the official API.
+            if platform == "bilibili" and page_subtitles:
+                extracted = page_subtitles
+                source = "bilibili_subtitles"
+                source_language = page_subtitle_language or page_subtitles[0].source_language
+                job.stage, job.progress = "已读取 B 站当前视频字幕", 50
+                info, audio = {"title": video_id, "duration": None}, None
+            else:
+                info, extracted, audio = await asyncio.to_thread(_download, url, temp)
+                await control.checkpoint()
+                source = info.get("_ytba_source", f"{platform}_subtitles")
+                source_language = info.get("_ytba_language", "en")
             if not extracted:
                 config = load_config()
                 # Moon Begin: distinguish first-run model download from transcription.
@@ -984,10 +993,14 @@ async def _run_job(
     """Keep cancellation visible instead of leaving a stale running job."""
     # Moon Begin
     try:
+        log_event("job_started", job_id=job_id, platform=platform_from_url(url))
         await process_job(job_id, url, page_subtitles, page_subtitle_language)
+        result = JOBS[job_id].result
+        log_event("job_completed", job_id=job_id, state=JOBS[job_id].state, source=result.source if result else "")
     except asyncio.CancelledError:
         job = JOBS[job_id]
         job.state, job.stage, job.error = "cancelled", "任务已取消，进度已保留", None
+        log_event("job_cancelled", job_id=job_id)
     except Exception as exc:
         job = JOBS[job_id]
         # Moon Add: hide transport implementation details after all safe retries are exhausted.
@@ -995,6 +1008,7 @@ async def _run_job(
             job.state, job.stage, job.error = "failed", "音频下载多次中断", "B 站音频下载多次中断，请稍后点击重试"
         else:
             job.state, job.stage, job.error = "failed", "处理失败", str(exc)
+        log_exception("job_failed", exc, job_id=job_id, stage=job.stage)
     finally:
         JOB_TASKS.pop(job_id, None)
     # Moon End
@@ -1011,6 +1025,7 @@ def create_job(
     JOB_TASKS[job_id] = asyncio.create_task(
         _run_job(job_id, url, page_subtitles, page_subtitle_language)
     )
+    log_event("job_created", job_id=job_id, platform=platform_from_url(url))
     return job
 
 
@@ -1022,6 +1037,7 @@ def pause_job(job_id: str) -> JobView:
     control.previous_stage = job.stage
     control.resume_event.clear()
     job.state, job.stage = "paused", "已暂停（当前识别步骤结束后生效）"
+    log_event("job_paused", job_id=job_id)
     return job
 
 
@@ -1031,6 +1047,7 @@ def resume_job(job_id: str) -> JobView:
         return job
     job.state, job.stage = "running", control.previous_stage or "继续处理"
     control.resume_event.set()
+    log_event("job_resumed", job_id=job_id)
     return job
 
 
@@ -1043,6 +1060,7 @@ def cancel_job(job_id: str) -> JobView:
     # Moon Modified: stop at the next safe checkpoint. Force-cancelling a worker
     # thread can leave curl writing into the model path after cleanup begins.
     job.state, job.stage, job.error = "cancelled", "任务已取消，进度已保留", None
+    log_event("job_cancel_requested", job_id=job_id)
     return job
 
 
@@ -1162,6 +1180,7 @@ def start_model_download(
         state="running", stage="正在连接模型仓库",
     )
     MODEL_DOWNLOAD_CANCEL.clear()
+    log_event("model_download_started", model=model, source=source, install_dir=configured_install_dir)
 
     async def run() -> None:
         global MODEL_DOWNLOAD
@@ -1181,10 +1200,13 @@ def start_model_download(
             MODEL_DOWNLOAD.resolved_path = path
             MODEL_DOWNLOAD.installed = MODEL_DOWNLOAD.valid = True
             MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage, MODEL_DOWNLOAD.progress = "completed", "模型可用", 100
+            log_event("model_download_completed", model=model, resolved_path=path)
         except (asyncio.CancelledError, DownloadCancelled):
             MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage = "cancelled", "下载已取消，可稍后续传"
+            log_event("model_download_cancelled", model=model)
         except Exception as exc:
             MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage, MODEL_DOWNLOAD.error = "failed", "模型下载失败", str(exc)
+            log_exception("model_download_failed", exc, model=model)
     MODEL_DOWNLOAD_TASK = asyncio.create_task(run())
     return MODEL_DOWNLOAD
 
@@ -1194,6 +1216,7 @@ def cancel_model_download() -> ModelStatus:
     MODEL_DOWNLOAD_CANCEL.set()
     if MODEL_DOWNLOAD:
         MODEL_DOWNLOAD.state, MODEL_DOWNLOAD.stage = "cancelled", "下载已取消，可稍后续传"
+        log_event("model_download_cancelled", model=MODEL_DOWNLOAD.model)
     return MODEL_DOWNLOAD or inspect_whisper_model()
 
 
@@ -1237,6 +1260,37 @@ def get_cuda_runtime_status() -> CudaRuntimeStatus:
     return inspect_cuda_runtime()
 
 
+def _extract_cuda_wheels(
+    wheels: list[Path], install_root: Path,
+    progress: Callable[[str, int, int, float], None], total_bytes: int,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """Extract trusted NVIDIA runtime wheels without invoking a nested pip process."""
+    # Moon Begin
+    install_root.mkdir(parents=True, exist_ok=True)
+    resolved_root = install_root.resolve()
+    install_started = time.monotonic()
+    log_event("cuda_archive_install_started", install_root=install_root, wheel_count=len(wheels), total_download_bytes=total_bytes)
+    for index, wheel in enumerate(wheels, start=1):
+        _raise_if_cancelled(cancel_event)
+        with zipfile.ZipFile(wheel) as archive:
+            files = [item for item in archive.infolist() if not item.is_dir()]
+            total_files = len(files)
+            for file_index, item in enumerate(files, start=1):
+                _raise_if_cancelled(cancel_event)
+                destination = (resolved_root / item.filename).resolve()
+                if resolved_root not in destination.parents:
+                    raise RuntimeError(f"GPU 运行库包含不安全文件路径：{item.filename}")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(item) as source, destination.open("wb") as output:
+                    shutil.copyfileobj(source, output, length=1024 * 1024)
+                if file_index == total_files or file_index % 50 == 0:
+                    progress(f"正在安装本机运行库 · {index}/{len(wheels)} · {file_index}/{total_files} 文件", total_bytes, total_bytes, 0)
+        log_event("cuda_archive_installed", archive=wheel.name, files=total_files)
+    log_event("cuda_archive_install_completed", elapsed_seconds=round(time.monotonic() - install_started, 2))
+    # Moon End
+
+
 def _install_cuda_runtime(
     progress: Callable[[str, int, int, float], None],
     cancel_event: threading.Event | None = None,
@@ -1264,6 +1318,7 @@ def _install_cuda_runtime(
             )
 
     total_bytes = sum(item[2] for item in package_files)
+    log_event("cuda_download_plan", install_root=install_root, download_dir=download_dir, total_bytes=total_bytes, components=[item[0] for item in package_files])
     # Moon Add: publish total size before the first response body chunk arrives.
     package_downloaded = [
         min(expected, destination.stat().st_size) if destination.exists() else 0
@@ -1278,6 +1333,7 @@ def _install_cuda_runtime(
             package_downloaded[package_index] = 0
         started = time.monotonic()
         if existing < expected:
+            log_event("cuda_component_download_started", component=label, destination=destination, existing_bytes=existing, total_bytes=expected)
             headers = {"Range": f"bytes={existing}-"} if existing else {}
             with httpx.stream("GET", url, headers=headers, follow_redirects=True, timeout=60) as response:
                 if existing and response.status_code != 206:
@@ -1298,23 +1354,20 @@ def _install_cuda_runtime(
             raise RuntimeError(f"{label} 下载大小校验失败")
         package_downloaded[package_index] = expected
         wheels.append(destination)
+        log_event("cuda_component_download_completed", component=label, bytes=expected, elapsed_seconds=round(time.monotonic() - started, 2))
         progress(label, sum(package_downloaded), total_bytes, 0)
 
     _raise_if_cancelled(cancel_event)
-    progress("正在安装本机运行库", total_bytes, total_bytes, 0)
-    process = subprocess.run(
-        [
-            sys.executable, "-m", "pip", "install", "--no-index", "--upgrade",
-            "--target", str(install_root), *map(str, wheels),
-        ],
-        capture_output=True, text=True, timeout=600,
-    )
-    if process.returncode:
-        raise RuntimeError(process.stderr.strip() or "CUDA 运行库安装失败")
+    # Moon Modified: NVIDIA's wheels are data-only runtime archives. Installing
+    # them through pip can hang in uv-managed virtual environments before any
+    # file is written. Extract them directly with an explicit safe-path check.
+    _extract_cuda_wheels(wheels, install_root, progress, total_bytes, cancel_event)
+    log_event("cuda_dll_validation_started", install_root=install_root)
     _configure_private_cuda_runtime()
     status = inspect_cuda_runtime()
     if not status.valid:
         raise RuntimeError("运行库已安装，但 DLL 加载验证失败，请重启本机服务后检查")
+    log_event("cuda_install_completed", install_root=install_root)
 
 
 def start_cuda_runtime_install() -> CudaRuntimeStatus:
@@ -1325,6 +1378,7 @@ def start_cuda_runtime_install() -> CudaRuntimeStatus:
     if CUDA_INSTALL_TASK and not CUDA_INSTALL_TASK.done():
         return CUDA_INSTALL
     CUDA_INSTALL = CudaRuntimeStatus(state="running", stage="正在获取运行库信息")
+    log_event("cuda_install_started")
     CUDA_INSTALL_CANCEL.clear()
 
     async def run() -> None:
@@ -1342,8 +1396,10 @@ def start_cuda_runtime_install() -> CudaRuntimeStatus:
             CUDA_INSTALL = inspect_cuda_runtime()
         except DownloadCancelled:
             CUDA_INSTALL.state, CUDA_INSTALL.stage = "cancelled", "下载已取消，可稍后继续"
+            log_event("cuda_install_cancelled")
         except Exception as exc:
             CUDA_INSTALL.state, CUDA_INSTALL.stage, CUDA_INSTALL.error = "failed", "GPU 运行库配置失败", str(exc)
+            log_exception("cuda_install_failed", exc, stage=CUDA_INSTALL.stage)
 
     CUDA_INSTALL_TASK = asyncio.create_task(run())
     return CUDA_INSTALL

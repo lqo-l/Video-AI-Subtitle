@@ -25,8 +25,8 @@ def test_bilibili_live_player_cid_scopes_page_subtitle_cache():
 
 
 def test_bilibili_page_caption_cache_schema_invalidates_stale_player_results():
-    # Moon Modified: version 5 does not reuse page-caption caches; Bilibili uses audio recognition only.
-    assert pipeline.CACHE_SCHEMA_VERSION == 5
+    # Moon Modified: version 6 does not reuse caches created from a stale player CID.
+    assert pipeline.CACHE_SCHEMA_VERSION == 6
 
 
 def test_truncated_media_download_error_is_retryable():

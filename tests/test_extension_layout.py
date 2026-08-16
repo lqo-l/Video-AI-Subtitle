@@ -20,20 +20,31 @@ def test_bilibili_uses_draggable_launcher_instead_of_prompt():
     assert "bindLauncherDrag" in script
 
 
-def test_bilibili_uses_current_url_audio_recognition_instead_of_page_subtitles():
-    # Moon Modified: Bilibili SPA subtitle state can be stale; this path must remain disabled.
+def test_idle_bilibili_launcher_hides_during_fullscreen_playback():
+    # Moon Add: a pre-processing launcher is not useful while video controls own fullscreen.
+    root = Path(__file__).parents[1] / "extension"
+    script = (root / "content.js").read_text(encoding="utf-8")
+    css = (root / "content.css").read_text(encoding="utf-8")
+    assert "if(launcher)launcher.hidden=Boolean(host)&&!job;" in script
+    assert "body.ytba-fullscreen #ytba-launcher { display:none; }" in css
+
+
+def test_bilibili_page_subtitles_are_resolved_from_url_authoritative_metadata():
+    # Moon Modified: never derive a Bilibili subtitle CID from a stale SPA player.
     root = Path(__file__).parents[1] / "extension"
     script = (root / "content.js").read_text(encoding="utf-8")
     background = (root / "background.js").read_text(encoding="utf-8")
-    manifest = (root / "manifest.json").read_text(encoding="utf-8")
-    assert 'body:JSON.stringify({url:location.href})' in script
-    assert "fetch-bilibili-subtitles" not in script
-    assert "fetchBilibiliSubtitles" not in background
-    assert "bilibili-page-identity.js" not in manifest
+    assert 'type:"fetch-bilibili-subtitles",url:location.href' in script
+    assert "fetchBilibiliSubtitles(message.url)" in background
+    assert "resolveBilibiliUrlResource(rawUrl)" in background
+    assert "/x/web-interface/view?${resourceQuery}" in background
+    assert "/pgc/view/web/season?ep_id=" in background
+    assert "window.player" not in background
+    assert 'credentials: "include"' in background
 
 
 def test_bilibili_never_selects_yt_dlp_caption_tracks():
-    # Moon Add: Bilibili source data may be stale; it must always use downloaded audio and Whisper.
+    # Moon Add: page tracks are URL-authoritative; yt-dlp remains the Whisper fallback path.
     root = Path(__file__).parents[1]
     pipeline = (root / "service" / "app" / "pipeline.py").read_text(encoding="utf-8")
     assert 'if platform_from_url(url) != "bilibili" else None' in pipeline
@@ -210,6 +221,16 @@ def test_advanced_settings_offer_prompt_files_with_safe_format_warning():
     assert 'request("/prompts")' in script
     assert 'request("/prompts/open",{method:"POST"})' in script
     assert 'request(`/prompts/${kind}/restore`,{method:"POST"})' in script
+
+
+def test_settings_expose_privacy_safe_diagnostic_log_folder():
+    # Moon Add: users need a discoverable path for actionable local diagnostics.
+    root = Path(__file__).parents[1] / "extension"
+    html = (root / "options.html").read_text(encoding="utf-8")
+    script = (root / "options.js").read_text(encoding="utf-8")
+    assert 'id="open_diagnostics"' in html
+    assert "不会记录 API Key、Cookie 或字幕正文" in html
+    assert 'request("/diagnostics/open",{method:"POST"})' in script
 
 
 def test_secondary_storage_actions_are_collapsed_and_cache_scope_is_explicit():

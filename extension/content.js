@@ -92,6 +92,27 @@
     document.body.appendChild(box);
   }
 
+  // Moon Begin: Bilibili subtitles are resolved by the URL in the background worker.
+  // This deliberately does not inspect the SPA player, whose state can be stale.
+  async function getBilibiliPageSubtitles(){
+    if(site!=="bilibili")return {segments:[]};
+    try{
+      const response=await safeSendMessage({type:"fetch-bilibili-subtitles",url:location.href});
+      return Array.isArray(response?.segments)?response:{segments:[]};
+    }catch(error){
+      console.warn("[YTBA] Bilibili subtitles unavailable:",error);
+      return {segments:[]};
+    }
+  }
+
+  function jobUrlForPageSubtitles(pageSubtitles){
+    if(site!=="bilibili"||!Number.isSafeInteger(Number(pageSubtitles?.identity?.cid)))return location.href;
+    const url=new URL(location.href);
+    url.searchParams.set("ytba_cid",String(pageSubtitles.identity.cid));
+    return url.href;
+  }
+  // Moon End
+
   function releaseService(){ return safeSendMessage({type:"release-service",leaseId:serviceLeaseId}); }
 
   // Moon Begin: Bilibili uses a quiet draggable launcher instead of a modal prompt.
@@ -247,6 +268,9 @@
     if(!host&&launcher&&launcher.parentElement!==document.body)document.body.appendChild(launcher);
     host?.classList.add("ytba-fullscreen-host");
     document.body.classList.toggle("ytba-fullscreen",Boolean(host));
+    // Moon Add: the idle Bilibili launcher should never overlap fullscreen playback.
+    // A started task has already replaced it with the assistant sidebar.
+    if(launcher)launcher.hidden=Boolean(host)&&!job;
     updateSiteHeaderOffset(Boolean(host));
     // Moon End
   }
@@ -526,8 +550,8 @@
       updateStatus("正在启动本机服务", 2);
       await ensureService();
       if(assistantDismissed){releaseService().catch(()=>{});return;}
-      // Moon Add: Bilibili's SPA may expose stale subtitle data; use the current URL's audio and Whisper only.
-      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:location.href})});
+      const pageSubtitles=await getBilibiliPageSubtitles();
+      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:jobUrlForPageSubtitles(pageSubtitles),page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
       if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});releaseService().catch(()=>{});return;}
       job=createdJob;
       poll();
@@ -554,7 +578,8 @@
       summaryComplete=false;
       await ensureService();
       if(assistantDismissed){releaseService().catch(()=>{});return;}
-      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:location.href})});
+      const pageSubtitles=await getBilibiliPageSubtitles();
+      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:jobUrlForPageSubtitles(pageSubtitles),page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
       if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});releaseService().catch(()=>{});return;}
       job=createdJob;
       poll();

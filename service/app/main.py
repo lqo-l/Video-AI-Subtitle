@@ -25,6 +25,7 @@ from .storage import (
     update_install_directory,
 )
 from .prompts import ensure_prompt_file, prompt_path, restore_default_prompt
+from .diagnostics import LOG_DIR, log_event
 
 
 app = FastAPI(title="Video Bilingual Assistant", version="0.2.0")
@@ -76,6 +77,7 @@ def clear_cache():
         if path.is_file():
             path.unlink()
             removed += 1
+    log_event("subtitle_cache_cleared", removed=removed)
     return {"ok": True, "removed": removed}
 
 
@@ -99,6 +101,7 @@ def put_config(config: ServiceConfig):
         if value and not Path(value).expanduser().is_absolute():
             raise HTTPException(400, "安装位置必须是绝对路径")
     save_config(config)
+    log_event("settings_saved", device=config.device, whisper_model=config.whisper_model)
     return PublicConfig(**config.model_dump(exclude={"api_key"}), api_key_configured=bool(config.api_key))
 
 
@@ -108,9 +111,12 @@ async def start_job(request: VideoRequest):  # Moon Modified: keep task creation
     hostname = (urlparse(url).hostname or "").lower()
     if hostname not in ("youtu.be", "youtube.com", "www.youtube.com", "bilibili.com", "www.bilibili.com"):
         raise HTTPException(400, "仅支持 YouTube 或 Bilibili 视频链接")
-    return create_job(
+    job = create_job(
         str(request.url), request.page_subtitles, request.page_subtitle_language,
     )
+    job_id = job.id if hasattr(job, "id") else job.get("id", "")
+    log_event("job_requested", job_id=job_id, hostname=hostname, has_page_subtitles=bool(request.page_subtitles))
+    return job
 
 
 @app.get("/jobs/{job_id}", response_model=JobView)
@@ -164,6 +170,7 @@ async def model_download(
 
 @app.post("/models/download/cancel", response_model=ModelStatus)
 def model_download_cancel():
+    log_event("model_download_cancel_requested")
     return cancel_model_download()
 
 
@@ -197,13 +204,27 @@ def cuda_status():
 
 @app.post("/cuda/install", response_model=CudaRuntimeStatus)
 async def cuda_install():
+    log_event("cuda_install_requested")
     return start_cuda_runtime_install()
 
 
 @app.post("/cuda/install/cancel", response_model=CudaRuntimeStatus)
 def cuda_install_cancel():
     # Moon Add: cancellation preserves completed wheel bytes for a later resume.
+    log_event("cuda_install_cancel_requested")
     return cancel_cuda_runtime_install()
+
+
+@app.post("/diagnostics/open")
+def diagnostics_open():
+    # Moon Add: troubleshooting should be reachable without exposing arbitrary paths.
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        os.startfile(str(LOG_DIR))
+    except OSError as exc:
+        raise HTTPException(500, f"无法打开诊断日志文件夹：{exc}") from exc
+    log_event("diagnostics_folder_opened")
+    return {"ok": True, "path": str(LOG_DIR)}
 
 
 # Moon Begin: native folder selection and confirmed storage migration.

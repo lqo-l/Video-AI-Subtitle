@@ -33,8 +33,8 @@ def test_caption_cleanup_removes_only_edge_continuation_dots():
     assert pipeline._clean_caption("中间...省略号") == "中间...省略号"
 
 
-def test_bilibili_ignores_page_subtitles_and_uses_current_url_download(tmp_path, monkeypatch):
-    # Moon Modified: page tracks can belong to another Bilibili SPA session and must be ignored.
+def test_bilibili_uses_url_validated_page_subtitles_before_current_url_download(tmp_path, monkeypatch):
+    # Moon Modified: the extension only supplies URL-authoritative Bilibili subtitles.
     page_segments = [Segment(start=0, end=1, en="Page caption", source_language="en")]
     monkeypatch.setattr(pipeline, "CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(pipeline, "WORK_DIR", tmp_path / "work")
@@ -56,8 +56,8 @@ def test_bilibili_ignores_page_subtitles_and_uses_current_url_download(tmp_path,
     pipeline.JOBS[job_id]=JobView(id=job_id,state="queued",stage="等待处理",progress=0)
     asyncio.run(pipeline.process_job(job_id,"https://www.bilibili.com/video/BV1test",page_segments,"en"))
     job=pipeline.JOBS.pop(job_id)
-    assert job.result.source == "whisper"
-    assert job.result.segments[0].en == "Current audio"
+    assert job.result.source == "bilibili_subtitles"
+    assert job.result.segments[0].en == "Page caption"
 
 
 def test_japanese_translation_uses_language_aware_prompt(monkeypatch):
@@ -296,5 +296,5 @@ def test_bilibili_japanese_pipeline_writes_site_specific_cache(tmp_path, monkeyp
     assert job.result.source_language == "ja"
     assert job.result.source == "bilibili_subtitles"
     assert job.result.segments[0].zh == "测试"
-    assert (cache_dir / "bilibili_BV1test123_p2.v5.json").exists()
+    assert (cache_dir / "bilibili_BV1test123_p2.v6.json").exists()
 # Moon End
