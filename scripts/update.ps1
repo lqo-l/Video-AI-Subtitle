@@ -22,6 +22,43 @@ function Write-UpdateLog([string]$Message) {
     Write-Output ("[update] " + $Message)
 }
 
+function Write-UpdateProgress([string]$Stage, [long]$Downloaded, [long]$Total, [double]$Speed = 0) {
+    Write-Output ("YTBA_UPDATE_PROGRESS|" + $Stage + "|" + $Downloaded + "|" + $Total + "|" + $Speed.ToString("0.0", [Globalization.CultureInfo]::InvariantCulture))
+}
+
+function Download-UpdateArchive {
+    param([string]$SourceUrl, [string]$Destination)
+    $request = [Net.HttpWebRequest]::Create($SourceUrl)
+    $request.AllowAutoRedirect = $true
+    $request.Timeout = 30000
+    $response = $request.GetResponse()
+    try {
+        $total = [long]$response.ContentLength
+        $input = $response.GetResponseStream()
+        $output = [IO.File]::Open($Destination, [IO.FileMode]::Create, [IO.FileAccess]::Write)
+        try {
+            $buffer = New-Object byte[] (1024 * 128)
+            $downloaded = [long]0
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $lastReport = -1
+            while (($read = $input.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $output.Write($buffer, 0, $read)
+                $downloaded += $read
+                if ($downloaded - $lastReport -ge 131072 -or ($total -gt 0 -and $downloaded -eq $total)) {
+                    $speed = $downloaded / [Math]::Max(0.001, $clock.Elapsed.TotalSeconds)
+                    Write-UpdateProgress "正在下载更新包" $downloaded $total $speed
+                    $lastReport = $downloaded
+                }
+            }
+        }
+        finally {
+            $output.Dispose()
+            $input.Dispose()
+        }
+    }
+    finally { $response.Dispose() }
+}
+
 function Restore-Backup {
     foreach ($relative in $ManagedDirectories) {
         $target = Join-Path $ProjectRoot $relative
@@ -62,17 +99,21 @@ try {
 
     New-Item -ItemType Directory -Force -Path $RunRoot, $StagePath, $BackupPath | Out-Null
     Write-UpdateLog "正在下载 v$Version"
-    Invoke-WebRequest -Uri $Url -OutFile $ArchivePath -UseBasicParsing
+    Write-UpdateProgress "正在连接更新服务器" 0 0 0
+    Download-UpdateArchive -SourceUrl $Url -Destination $ArchivePath
+    Write-UpdateProgress "正在校验更新包" 1 1 0
     $actualDigest = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actualDigest -ne $Matches[1].ToLowerInvariant()) { throw "下载包校验失败，文件未替换" }
 
     Write-UpdateLog "正在校验并解压"
+    Write-UpdateProgress "正在校验并解压" 1 1 0
     Expand-Archive -LiteralPath $ArchivePath -DestinationPath $StagePath -Force
     foreach ($relative in $ManagedDirectories + $ManagedFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $StagePath $relative))) { throw "更新包不完整，缺少 $relative" }
     }
 
     Write-UpdateLog "正在替换程序文件"
+    Write-UpdateProgress "正在替换程序文件" 1 1 0
     foreach ($relative in $ManagedDirectories) {
         $target = Join-Path $ProjectRoot $relative
         $backup = Join-Path $BackupPath $relative
@@ -92,6 +133,7 @@ try {
     $finalizer = "-NoProfile -ExecutionPolicy Bypass -File `"$PSScriptRoot\update.ps1`" -Url `"$Url`" -Digest `"$Digest`" -Version `"$Version`" -HostPid $HostPid -ExtensionId `"$ExtensionId`" -Finalize"
     Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $finalizer -WindowStyle Hidden
     Write-UpdateLog "v$Version 已完成"
+    Write-UpdateProgress "更新完成，正在重载扩展" 1 1 0
     exit 0
 }
 catch {

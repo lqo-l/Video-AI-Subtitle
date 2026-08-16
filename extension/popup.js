@@ -2,7 +2,27 @@ fetch("http://127.0.0.1:18765/health").then(r=>r.json()).then(()=>status.textCon
 const serviceLeaseId=`ytba-popup-${crypto.randomUUID()}`;
 // Moon Begin: update progress stays inside the popup and reloads only after the native helper has replaced release files.
 let updateInfo=null;
-const updateBox=document.querySelector("#update"), updateTitle=document.querySelector("#update_title"), updateNote=document.querySelector("#update_note"), checkUpdate=document.querySelector("#check_update"), openUpdate=document.querySelector("#open_update"), installUpdate=document.querySelector("#install_update"), updateStatus=document.querySelector("#update_status");
+const updateBox=document.querySelector("#update"), updateTitle=document.querySelector("#update_title"), updateNote=document.querySelector("#update_note"), checkUpdate=document.querySelector("#check_update"), openUpdate=document.querySelector("#open_update"), installUpdate=document.querySelector("#install_update"), updateStatus=document.querySelector("#update_status"), updateProgress=document.querySelector("#update_progress"), updateProgressText=document.querySelector("#update_progress_text"), updateProgressBar=document.querySelector("#update_progress_bar");
+function formatBytes(value){
+  const bytes=Number(value)||0;
+  if(bytes<1024)return `${bytes} B`;
+  if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} KB`;
+  return `${(bytes/1024/1024).toFixed(1)} MB`;
+}
+function renderUpdateProgress(progress){
+  if(!progress||progress.state!=="running"){updateProgress.classList.remove("show","indeterminate");return;}
+  const downloaded=Number(progress.downloaded)||0,total=Number(progress.total)||0,speed=Number(progress.speed)||0;
+  const knownTotal=total>0;
+  updateProgress.classList.add("show");
+  updateProgress.classList.toggle("indeterminate",!knownTotal);
+  const percent=knownTotal?Math.min(100,Math.floor(downloaded*100/total)):0;
+  updateProgressBar.style.width=`${percent}%`;
+  if(knownTotal){
+    updateProgressText.textContent=`${progress.stage||"正在下载"} · ${percent}% · ${formatBytes(downloaded)} / ${formatBytes(total)} · ${formatBytes(speed)}/s`;
+  }else{
+    updateProgressText.textContent=progress.stage||"正在连接更新服务器";
+  }
+}
 async function refreshUpdate(force=false){
   updateStatus.classList.remove("show");
   checkUpdate.disabled=true;
@@ -28,19 +48,25 @@ openUpdate.onclick=()=>{if(updateInfo?.url)chrome.tabs.create({url:updateInfo.ur
 installUpdate.onclick=async()=>{
   if(!updateInfo?.available)return;
   installUpdate.disabled=true;openUpdate.disabled=true;checkUpdate.disabled=true;
-  installUpdate.textContent="正在下载并替换…";
+  installUpdate.textContent="正在更新…";
   updateNote.textContent="完成后将自动重载扩展，请勿关闭 Chrome";
+  renderUpdateProgress({state:"running",stage:"正在连接更新服务器"});
   try{
     const result=await chrome.runtime.sendMessage({type:"install-extension-update",update:updateInfo});
     if(!result?.ok)throw new Error(result?.error||"更新未完成");
+    renderUpdateProgress({state:"running",stage:"更新完成，正在重载扩展…",downloaded:1,total:1});
     updateNote.textContent="更新完成，正在重载扩展…";
     setTimeout(()=>chrome.runtime.reload(),300);
   }catch(error){
+    renderUpdateProgress(null);
     updateNote.textContent=`更新失败：${error.message}`;
     installUpdate.textContent="重试更新";
     installUpdate.disabled=false;openUpdate.disabled=false;checkUpdate.disabled=false;
   }
 };
+chrome.storage.onChanged.addListener((changes,area)=>{
+  if(area==="local"&&changes.ytbaExtensionUpdateProgress)renderUpdateProgress(changes.ytbaExtensionUpdateProgress.newValue);
+});
 checkUpdate.onclick=()=>refreshUpdate(true);
 refreshUpdate();
 // Moon End

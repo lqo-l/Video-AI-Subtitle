@@ -1,6 +1,7 @@
 // Moon Begin
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -10,6 +11,7 @@ internal static class Program
 {
     private static Process service;
     private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
+    private static readonly object OutputLock = new object();
     // Moon Modified: keep launcher output with the rest of the user-facing diagnostics.
     private static readonly string LogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YouTubeBilingualAssistant", "logs", "native-service.log");
 
@@ -149,7 +151,7 @@ internal static class Program
         };
         using (Process updaterProcess = new Process { StartInfo = startInfo })
         {
-            updaterProcess.OutputDataReceived += LogLine;
+            updaterProcess.OutputDataReceived += UpdateLogLine;
             updaterProcess.ErrorDataReceived += LogLine;
             updaterProcess.Start();
             updaterProcess.BeginOutputReadLine();
@@ -163,6 +165,20 @@ internal static class Program
     private static string Quote(string value)
     {
         return "\"" + (value ?? "").Replace("\"", "\\\"") + "\"";
+    }
+
+    private static void UpdateLogLine(object sender, DataReceivedEventArgs args)
+    {
+        if (string.IsNullOrEmpty(args.Data)) return;
+        LogLine(sender, args);
+        string[] fields = args.Data.Split('|');
+        if (fields.Length != 5 || fields[0] != "YTBA_UPDATE_PROGRESS") return;
+        long downloaded, total;
+        double speed;
+        if (!long.TryParse(fields[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out downloaded) ||
+            !long.TryParse(fields[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out total) ||
+            !double.TryParse(fields[4], NumberStyles.Float, CultureInfo.InvariantCulture, out speed)) return;
+        WriteMessage(Json.Serialize(new { progress = true, stage = fields[1], downloaded = downloaded, total = total, speed = speed }));
     }
 
     private static void LogText(string message)
@@ -190,11 +206,14 @@ internal static class Program
 
     private static void WriteMessage(string message)
     {
-        byte[] body = Encoding.UTF8.GetBytes(message);
-        Stream output = Console.OpenStandardOutput();
-        output.Write(BitConverter.GetBytes(body.Length), 0, 4);
-        output.Write(body, 0, body.Length);
-        output.Flush();
+        lock (OutputLock)
+        {
+            byte[] body = Encoding.UTF8.GetBytes(message);
+            Stream output = Console.OpenStandardOutput();
+            output.Write(BitConverter.GetBytes(body.Length), 0, 4);
+            output.Write(body, 0, body.Length);
+            output.Flush();
+        }
     }
 }
 // Moon End

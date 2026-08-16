@@ -3,6 +3,7 @@ let nativePort = null;
 const serviceLeases = new Set();
 const UPDATE_API = "https://api.github.com/repos/lqo-l/Video-AI-Subtitle/releases/latest";
 const UPDATE_CACHE_KEY = "ytbaExtensionUpdate";
+const UPDATE_PROGRESS_KEY = "ytbaExtensionUpdateProgress";
 const UPDATE_CACHE_MS = 6 * 60 * 60 * 1000;
 const UPDATE_TIMEOUT_MS = 6000;
 
@@ -56,7 +57,15 @@ function installExtensionUpdate(update) {
       try { port.disconnect(); } catch (_) {}
       resolve(response);
     };
-    port.onMessage.addListener(finish);
+    chrome.storage.local.set({[UPDATE_PROGRESS_KEY]: {state: "running", stage: "正在连接更新服务器", downloaded: 0, total: 0, speed: 0}});
+    port.onMessage.addListener(response => {
+      if (response?.progress) {
+        chrome.storage.local.set({[UPDATE_PROGRESS_KEY]: {state: "running", ...response}});
+        return;
+      }
+      chrome.storage.local.set({[UPDATE_PROGRESS_KEY]: {state: response?.ok ? "completed" : "failed", ...response}});
+      finish(response);
+    });
     port.onDisconnect.addListener(() => finish({ok: false, error: chrome.runtime.lastError?.message || "本机更新器连接中断"}));
     port.postMessage({action: "update", url: update.assetUrl, digest: update.assetDigest, version: update.latestVersion, extensionId: chrome.runtime.id});
   });

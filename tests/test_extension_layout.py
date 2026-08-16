@@ -110,6 +110,23 @@ def test_native_updater_checks_release_digest_and_reregisters_host_after_replace
     assert 'Restore-Backup' in updater
 
 
+def test_one_click_update_reports_real_download_telemetry_and_install_stages():
+    # Moon Add: an update must expose bytes, total size and speed rather than a disabled button.
+    root = Path(__file__).parents[1]
+    popup = (root / "extension" / "popup.js").read_text(encoding="utf-8")
+    popup_html = (root / "extension" / "popup.html").read_text(encoding="utf-8")
+    background = (root / "extension" / "background.js").read_text(encoding="utf-8")
+    host = (root / "native-host" / "Program.cs").read_text(encoding="utf-8")
+    updater = (root / "scripts" / "update.ps1").read_text(encoding="utf-8")
+    assert 'formatBytes(downloaded)' in popup
+    assert 'update_progress_bar' in popup_html
+    assert 'chrome.storage.onChanged.addListener' in popup
+    assert 'YTBA_UPDATE_PROGRESS' in host
+    assert 'Write-UpdateProgress "正在下载更新包"' in updater
+    assert 'Write-UpdateProgress "正在校验并解压"' in updater
+    assert 'UPDATE_PROGRESS_KEY' in background
+
+
 def test_collapsed_panel_hides_content_without_reflow_flash():
     css = (Path(__file__).parents[1] / "extension" / "content.css").read_text(encoding="utf-8")
     collapsed_rule = next(
