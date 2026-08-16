@@ -23,8 +23,25 @@ internal static class Program
                 if (message == null) break;
                 dynamic request = Json.DeserializeObject(message);
                 string action = request.ContainsKey("action") ? request["action"] as string : "";
-                if (action == "start") StartService();
-                WriteMessage(Json.Serialize(new { ok = true, running = service != null && !service.HasExited }));
+                if (action == "start")
+                {
+                    StartService();
+                    WriteMessage(Json.Serialize(new { ok = true, running = service != null && !service.HasExited }));
+                }
+                else if (action == "update")
+                {
+                    // Moon Add: only the registered local host may replace an unpacked extension's files.
+                    string url = request.ContainsKey("url") ? request["url"] as string : "";
+                    string digest = request.ContainsKey("digest") ? request["digest"] as string : "";
+                    string version = request.ContainsKey("version") ? request["version"] as string : "";
+                    string extensionId = request.ContainsKey("extensionId") ? request["extensionId"] as string : "";
+                    InstallUpdate(url, digest, version, extensionId);
+                    WriteMessage(Json.Serialize(new { ok = true, version = version }));
+                }
+                else
+                {
+                    WriteMessage(Json.Serialize(new { ok = false, error = "未知的本机操作" }));
+                }
             }
         }
         catch (Exception error)
@@ -100,6 +117,57 @@ internal static class Program
                 CreateNoWindow = true
             }).WaitForExit(5000);
         }
+        catch { }
+    }
+
+    private static void InstallUpdate(string url, string digest, string version, string extensionId)
+    {
+        Uri releaseUrl;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out releaseUrl) || releaseUrl.Scheme != Uri.UriSchemeHttps || releaseUrl.Host != "github.com")
+            throw new InvalidOperationException("更新包地址无效");
+        if (string.IsNullOrWhiteSpace(digest) || !digest.StartsWith("sha256:"))
+            throw new InvalidOperationException("更新包缺少 SHA-256 校验信息");
+        if (string.IsNullOrWhiteSpace(extensionId) || extensionId.Length != 32)
+            throw new InvalidOperationException("扩展 ID 无效，无法完成更新后的本机启动器注册");
+
+        string hostDirectory = AppDomain.CurrentDomain.BaseDirectory;
+        string projectRoot = Directory.GetParent(hostDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;
+        string updater = Path.Combine(projectRoot, "scripts", "update.ps1");
+        if (!File.Exists(updater)) throw new FileNotFoundException("当前版本不支持一键更新，请手动安装此版本后重试", updater);
+
+        LogText("extension_update_started version=" + version);
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+            Arguments = "-NoProfile -ExecutionPolicy Bypass -File " + Quote(updater) + " -Url " + Quote(url) + " -Digest " + Quote(digest) + " -Version " + Quote(version) + " -HostPid " + Process.GetCurrentProcess().Id + " -ExtensionId " + Quote(extensionId),
+            WorkingDirectory = projectRoot,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        using (Process updaterProcess = new Process { StartInfo = startInfo })
+        {
+            updaterProcess.OutputDataReceived += LogLine;
+            updaterProcess.ErrorDataReceived += LogLine;
+            updaterProcess.Start();
+            updaterProcess.BeginOutputReadLine();
+            updaterProcess.BeginErrorReadLine();
+            updaterProcess.WaitForExit();
+            if (updaterProcess.ExitCode != 0) throw new InvalidOperationException("更新失败，请在诊断日志中查看详细原因");
+        }
+        LogText("extension_update_completed version=" + version);
+    }
+
+    private static string Quote(string value)
+    {
+        return "\"" + (value ?? "").Replace("\"", "\\\"") + "\"";
+    }
+
+    private static void LogText(string message)
+    {
+        try { File.AppendAllText(LogPath, DateTime.Now.ToString("s") + " " + message + Environment.NewLine); }
         catch { }
     }
 

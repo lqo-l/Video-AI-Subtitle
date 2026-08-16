@@ -70,8 +70,8 @@ def test_chinese_source_replaces_redundant_language_picker_with_static_label():
     assert "staticLanguage.hidden=!chineseSource" in script
 
 
-def test_popup_checks_latest_github_release_without_self_updating_files():
-    # Moon Add: unpacked extensions may notify users, but Chrome owns local extension replacement.
+def test_popup_checks_latest_github_release_and_uses_native_host_for_safe_update():
+    # Moon Modified: Chrome cannot write its unpacked directory, so the trusted native host does it.
     root = Path(__file__).parents[1] / "extension"
     background = (root / "background.js").read_text(encoding="utf-8")
     popup = (root / "popup.js").read_text(encoding="utf-8")
@@ -80,9 +80,34 @@ def test_popup_checks_latest_github_release_without_self_updating_files():
     assert "UPDATE_CACHE_MS" in background
     assert '"check-extension-update"' in background
     assert 'type:"check-extension-update",force' in popup
+    assert 'type:"install-extension-update",update:updateInfo' in popup
+    assert 'action: "update"' in background
+    assert 'chrome.runtime.reload()' in popup
+    assert 'id="install_update"' in (root / "popup.html").read_text(encoding="utf-8")
     assert "已是最新版本" in popup
     assert "UPDATE_TIMEOUT_MS" in background
     assert 'https://api.github.com/*' in manifest
+
+
+def test_release_package_keeps_the_project_layout_and_excludes_runtime_bytecode():
+    # Moon Add: self-updating archives must be valid for first-time installation too.
+    root = Path(__file__).parents[1]
+    package = (root / "scripts" / "package.ps1").read_text(encoding="utf-8")
+    assert 'Join-Path $StagePath "native-host\\Program.cs"' in package
+    assert 'Filter "__pycache__"' in package
+    assert 'Get-ChildItem -LiteralPath $StagePath' in package
+
+
+def test_native_updater_checks_release_digest_and_reregisters_host_after_replacement():
+    # Moon Add: tampered archives must not be installed and the updated launcher must be rebuilt.
+    root = Path(__file__).parents[1]
+    host = (root / "native-host" / "Program.cs").read_text(encoding="utf-8")
+    updater = (root / "scripts" / "update.ps1").read_text(encoding="utf-8")
+    assert 'sha256:' in host
+    assert 'InstallUpdate(url, digest, version, extensionId)' in host
+    assert 'Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256' in updater
+    assert 'install-native-host.ps1' in updater
+    assert 'Restore-Backup' in updater
 
 
 def test_collapsed_panel_hides_content_without_reflow_flash():

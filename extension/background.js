@@ -6,7 +6,7 @@ const UPDATE_CACHE_KEY = "ytbaExtensionUpdate";
 const UPDATE_CACHE_MS = 6 * 60 * 60 * 1000;
 const UPDATE_TIMEOUT_MS = 6000;
 
-// Moon Begin: unpacked extensions cannot self-replace, but can safely direct users to a verified release.
+// Moon Begin: GitHub release discovery and a native-host mediated unpacked update.
 function compareVersions(left, right) {
   const parse = value => String(value).replace(/^v/i, "").split(".").map(part => Number(part) || 0);
   const a = parse(left), b = parse(right);
@@ -28,15 +28,38 @@ async function checkExtensionUpdate(force = false) {
     if (!response.ok) throw new Error(`GitHub ${response.status}`);
     const release = await response.json();
     const latestVersion = String(release.tag_name || "").replace(/^v/i, "");
+    const asset = Array.isArray(release.assets)
+      ? release.assets.find(item => item?.name === "youtube-bilingual-assistant.zip")
+      : null;
     const result = {
       currentVersion, latestVersion, available: Boolean(latestVersion) && compareVersions(latestVersion, currentVersion) > 0,
       url: release.html_url || "https://github.com/lqo-l/Video-AI-Subtitle/releases/latest", checkedAt: Date.now(),
+      assetUrl: asset?.browser_download_url || "",
+      assetDigest: asset?.digest || "",
     };
     await chrome.storage.local.set({[UPDATE_CACHE_KEY]: result});
     return result;
   } catch (error) {
     return {...(cached || {}), currentVersion, available: false, error: "暂时无法检查更新", checkedAt: Date.now()};
   }
+}
+
+function installExtensionUpdate(update) {
+  if (serviceLeases.size) return Promise.resolve({ok: false, error: "仍有视频任务在运行，请完成或取消后再更新"});
+  if (!update?.available || !update.assetUrl) return Promise.resolve({ok: false, error: "未找到可安装的更新包"});
+  return new Promise(resolve => {
+    const port = chrome.runtime.connectNative("com.moon.youtube_bilingual_assistant");
+    let replied = false;
+    const finish = response => {
+      if (replied) return;
+      replied = true;
+      try { port.disconnect(); } catch (_) {}
+      resolve(response);
+    };
+    port.onMessage.addListener(finish);
+    port.onDisconnect.addListener(() => finish({ok: false, error: chrome.runtime.lastError?.message || "本机更新器连接中断"}));
+    port.postMessage({action: "update", url: update.assetUrl, digest: update.assetDigest, version: update.latestVersion, extensionId: chrome.runtime.id});
+  });
 }
 // Moon End
 
@@ -204,6 +227,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if(message.type==="check-extension-update"){
     checkExtensionUpdate(Boolean(message.force)).then(sendResponse);
+    return true;
+  }
+  if(message.type==="install-extension-update"){
+    installExtensionUpdate(message.update).then(sendResponse);
     return true;
   }
   return true;

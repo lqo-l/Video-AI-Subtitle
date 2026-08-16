@@ -75,6 +75,12 @@ Open a supported video, click the extension, then select **Process Current Video
 - **Storage:** model and GPU-runtime folders can be relocated; resumable task/download cache can be cleared separately.
 - **Player UI:** adjust subtitle language, size, position, background, sidebar side, width, layout mode, and transparency.
 
+### Extension updates
+
+Starting with `v0.18.7`, when the popup finds a newer release, select **Update now**. The local updater downloads the GitHub Release archive, verifies its SHA-256 digest, replaces program files, and reloads the extension. Models, task cache, API configuration, and the Chrome extension ID are retained.
+
+Finish or cancel active video tasks before updating. Versions below `v0.18.7` do not include the local updater and need one final manual installation; subsequent updates can use this flow.
+
 ### GPU runtime compatibility
 
 The one-click GPU setup installs only the runtime DLLs required by `faster-whisper` / CTranslate2. It does **not** install a full CUDA Toolkit or NVIDIA driver.

@@ -1,8 +1,8 @@
 fetch("http://127.0.0.1:18765/health").then(r=>r.json()).then(()=>status.textContent="本机服务已连接").catch(()=>status.textContent="点击处理后将自动启动本机服务");
 const serviceLeaseId=`ytba-popup-${crypto.randomUUID()}`;
-// Moon Begin: only show update UI when a newer GitHub Release exists; local unpacked files still require a manual reinstall.
+// Moon Begin: update progress stays inside the popup and reloads only after the native helper has replaced release files.
 let updateInfo=null;
-const updateBox=document.querySelector("#update"), updateTitle=document.querySelector("#update_title"), updateNote=document.querySelector("#update_note"), checkUpdate=document.querySelector("#check_update"), openUpdate=document.querySelector("#open_update"), updateStatus=document.querySelector("#update_status");
+const updateBox=document.querySelector("#update"), updateTitle=document.querySelector("#update_title"), updateNote=document.querySelector("#update_note"), checkUpdate=document.querySelector("#check_update"), openUpdate=document.querySelector("#open_update"), installUpdate=document.querySelector("#install_update"), updateStatus=document.querySelector("#update_status");
 async function refreshUpdate(force=false){
   updateStatus.classList.remove("show");
   checkUpdate.disabled=true;
@@ -11,7 +11,7 @@ async function refreshUpdate(force=false){
     if(updateInfo?.available){
       updateBox.classList.add("show");
       updateTitle.textContent=`发现新版本 v${updateInfo.latestVersion}`;
-      updateNote.textContent=`当前 v${updateInfo.currentVersion} · 下载后按安装说明更新扩展`;
+      updateNote.textContent=`当前 v${updateInfo.currentVersion} · 将保留本机配置和缓存`;
     }else{
       updateBox.classList.remove("show");
       updateStatus.textContent=updateInfo?.error||`已是最新版本 v${updateInfo?.currentVersion||chrome.runtime.getManifest().version}`;
@@ -25,6 +25,22 @@ async function refreshUpdate(force=false){
   finally{checkUpdate.disabled=false;}
 }
 openUpdate.onclick=()=>{if(updateInfo?.url)chrome.tabs.create({url:updateInfo.url});};
+installUpdate.onclick=async()=>{
+  if(!updateInfo?.available)return;
+  installUpdate.disabled=true;openUpdate.disabled=true;checkUpdate.disabled=true;
+  installUpdate.textContent="正在下载并替换…";
+  updateNote.textContent="完成后将自动重载扩展，请勿关闭 Chrome";
+  try{
+    const result=await chrome.runtime.sendMessage({type:"install-extension-update",update:updateInfo});
+    if(!result?.ok)throw new Error(result?.error||"更新未完成");
+    updateNote.textContent="更新完成，正在重载扩展…";
+    setTimeout(()=>chrome.runtime.reload(),300);
+  }catch(error){
+    updateNote.textContent=`更新失败：${error.message}`;
+    installUpdate.textContent="重试更新";
+    installUpdate.disabled=false;openUpdate.disabled=false;checkUpdate.disabled=false;
+  }
+};
 checkUpdate.onclick=()=>refreshUpdate(true);
 refreshUpdate();
 // Moon End
