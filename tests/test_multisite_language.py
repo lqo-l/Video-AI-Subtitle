@@ -120,6 +120,40 @@ def test_transcribe_uses_multilingual_model_and_auto_detection(monkeypatch, tmp_
     assert previews[-1][0][0].en == "テスト"
 
 
+def test_transcribe_resumes_after_last_persisted_segment(monkeypatch, tmp_path):
+    # Moon Add: an interrupted transcription reuses completed cues and seeks forward.
+    observed = {}
+
+    class FakeInfo:
+        language = "ja"
+        duration = 20.0
+
+    class FakeItem:
+        start, end, text = 5.0, 7.0, " 続き "
+
+    class FakeWhisperModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, path, **kwargs):
+            observed.update(kwargs)
+            return [FakeItem()], FakeInfo()
+
+    monkeypatch.setattr(pipeline, "WhisperModel", FakeWhisperModel)
+    monkeypatch.setattr(pipeline, "_prepare_whisper_model", lambda model, callback: model)
+    seed = [Segment(start=0, end=5, en="前半", source_language="ja")]
+
+    segments, language = pipeline._transcribe(
+        tmp_path / "audio.wav", "small", "cpu",
+        initial_segments=seed, language_hint="ja",
+    )
+
+    assert observed["language"] == "ja"
+    assert observed["clip_timestamps"] == [5]
+    assert language == "ja"
+    assert [segment.en for segment in segments] == ["前半", "続き"]
+
+
 def test_transcribe_auto_falls_back_when_cuda_fails_during_iteration(monkeypatch, tmp_path):
     """CTranslate2 may load cuBLAS only after the lazy iterator starts."""
     # Moon Begin
@@ -296,5 +330,5 @@ def test_bilibili_japanese_pipeline_writes_site_specific_cache(tmp_path, monkeyp
     assert job.result.source_language == "ja"
     assert job.result.source == "bilibili_subtitles"
     assert job.result.segments[0].zh == "测试"
-    assert (cache_dir / "bilibili_BV1test123_p2.v6.json").exists()
+    assert (cache_dir / "bilibili_BV1test123_p2.v8.json").exists()
 # Moon End

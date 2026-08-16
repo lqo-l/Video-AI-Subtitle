@@ -33,6 +33,11 @@ class PublicConfig(BaseModel):
     api_key_configured: bool
 
 
+class WhisperModelSelection(BaseModel):
+    # Moon Add: model choice is persisted independently from other unsaved settings.
+    whisper_model: Literal["tiny", "base", "small", "medium"]
+
+
 # Moon Begin: native folder selection and migration contracts for the options page.
 class StoragePathSelection(BaseModel):
     kind: Literal["model", "cuda"]
@@ -63,11 +68,46 @@ class DownloadCacheResult(BaseModel):
 # Moon End
 
 
+class PageSubtitleIdentity(BaseModel):
+    # Moon Add: an official Bilibili API resolution is carried with its cues.
+    bvid: str = ""
+    cid: int = Field(default=0, ge=0)
+    duration: float = Field(default=0, ge=0)
+
+
+class PageSubtitleProvenance(BaseModel):
+    # Moon Add: privacy-safe request/track fingerprints make subtitle mix-ups traceable.
+    request_id: str = Field(default="", max_length=80)
+    navigation_generation: int = Field(default=0, ge=0)
+    requested_url_hash: str = Field(default="", max_length=80)
+    player_response_hash: str = Field(default="", max_length=80)
+    track_id: str = Field(default="", max_length=160)
+    track_language: str = Field(default="", max_length=40)
+    track_kind: str = Field(default="", max_length=80)
+    subtitle_url_hash: str = Field(default="", max_length=80)
+    subtitle_payload_hash: str = Field(default="", max_length=80)
+    cue_timing_hash: str = Field(default="", max_length=80)
+
+
+class PageSubtitleDiagnostic(BaseModel):
+    # Moon Add: metadata only; subtitle text is intentionally excluded.
+    status: Literal["found", "no_tracks", "tracks_invalid", "lookup_failed", "stale_route"]
+    identity: PageSubtitleIdentity | None = None
+    track_count: int = Field(default=0, ge=0)
+    ignored_ai_track_count: int = Field(default=0, ge=0)
+    rejected_tracks: list[dict[str, str | float]] = Field(default_factory=list)
+    error: str = ""
+    provenance: PageSubtitleProvenance | None = None
+
+
 class VideoRequest(BaseModel):
     url: HttpUrl
     # Moon Add: page-loaded Bilibili captions are a higher-fidelity fallback than ASR.
     page_subtitles: list["Segment"] = Field(default_factory=list)
     page_subtitle_language: Literal["en", "ja", "zh"] | None = None
+    page_subtitle_identity: PageSubtitleIdentity | None = None
+    page_subtitle_status: Literal["found", "no_tracks"] | None = None
+    page_subtitle_provenance: PageSubtitleProvenance | None = None
 
 
 class Segment(BaseModel):
@@ -113,6 +153,8 @@ class JobView(BaseModel):
     summary_error: str | None = None
     platform: Literal["youtube", "bilibili"] = "youtube"
     source_language: Literal["en", "ja", "zh"] = "en"
+    # Moon Add: let the panel distinguish embedded captions from speech recognition.
+    source: Literal["youtube_subtitles", "bilibili_subtitles", "whisper"] | None = None
 
 
 # Moon Begin: model inspection and pre-download are exposed to the settings page.

@@ -57,6 +57,8 @@ body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, bod
 .ytba-primary-tools .ytba-language { flex:1;display:flex;align-items:center;gap:4px; }
 .ytba-primary-tools .ytba-language select { min-width:0;flex:1; }
 .ytba-primary-tools .ytba-language [data-language-static] { min-width:0;flex:1;color:#e8edf7;font-weight:600; }
+.ytba-subtitle-source { padding:5px 14px 4px;color:#747d8c;font-size:11px;line-height:1.3;letter-spacing:.01em;border-bottom:1px solid rgba(255,255,255,.035); }
+.ytba-subtitle-source[hidden] { display:none; }
 .ytba-tools-menu { position:relative; }
 .ytba-tools-menu summary { display:grid;place-items:center;width:32px;height:29px;color:#e8ebf0;background:#343945;border:1px solid #4a5160;border-radius:6px;cursor:pointer;list-style:none;font-weight:700;letter-spacing:1px; }
 .ytba-tools-menu summary::-webkit-details-marker { display:none; }

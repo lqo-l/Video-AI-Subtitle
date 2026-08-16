@@ -64,7 +64,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | 优先级 | 来源 | 说明 |
 |---|---|---|
 | 1 | 站点字幕 | 使用视频可用的英文、日文或中文字幕轨。 |
-| 2 | B 站字幕接口 | 先由当前 URL 精确定位视频分 P，再请求 B 站字幕轨。部分 AI/CC 字幕需要处于 B 站登录状态；Chrome 直接携带该登录会话，扩展不会读取或保存 Cookie。 |
+| 2 | B 站字幕接口 | 先由当前 URL 精确定位视频分 P，再请求可验证的普通字幕轨。由于 B 站 AI 字幕接口可能返回与当前视频不匹配的内容，`v1.0.0` 暂不读取带 AI 标记的轨道。 |
 | 3 | 本机 Whisper | 下载当前视频音频后在本机识别；可在设置中选择 CPU、CUDA 和模型大小。 |
 
 ## 设置概览
@@ -100,7 +100,7 @@ CUDA Toolkit 11.x 或 cuDNN 8.x 不兼容。系统已安装 CUDA Toolkit 12.x �
 |---|---|
 | 一直显示「正在启动本机服务」 | 用当前扩展 ID 重新执行 `install-native-host.ps1`，并确认项目目录没有移动。日志：`%LOCALAPPDATA%\YouTubeBilingualAssistant\native-service.log`。 |
 | 模型服务返回 `401` / `403` | 确认 Base URL 含 `/v1`，并检查 API Key 与模型名称。 |
-| B 站未读取字幕而开始识别 | 当前视频可能没有可用字幕轨，或该轨需要 B 站登录；此时 Whisper 会作为正常回退。 |
+| B 站未读取字幕而开始识别 | 当前视频可能没有可验证的普通字幕轨；B 站 AI 字幕当前会被忽略，Whisper 会作为正常回退。 |
 | 首次识别较慢 | 可能正在下载所选 Whisper 模型，或当前为 CPU 模式；下载进度会显示在设置中。 |
 | 已安装 CUDA Toolkit 但插件仍显示未配置 | 插件要求精确的 cuBLAS 12 与 cuDNN 9 运行时 DLL；仅有显卡驱动或 CUDA Toolkit 11.x 不足。当前仅验证插件选择的运行库目录。 |
 

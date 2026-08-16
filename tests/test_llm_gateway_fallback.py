@@ -8,7 +8,7 @@ from service.app.llm import LlmClient
 from service.app.models import ServiceConfig
 
 
-def test_responses_502_retries_then_falls_back_and_remembers_chat(monkeypatch):
+def test_responses_502_falls_back_immediately_and_remembers_chat(monkeypatch):
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -39,8 +39,6 @@ def test_responses_502_retries_then_falls_back_and_remembers_chat(monkeypatch):
 
     asyncio.run(run())
     assert calls == [
-        "/v1/responses",
-        "/v1/responses",
         "/v1/responses",
         "/v1/chat/completions",
         "/v1/chat/completions",

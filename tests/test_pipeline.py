@@ -18,15 +18,15 @@ def test_bilibili_video_id_and_part_cache_key():
     assert cache_key_from_url(url) == "bilibili_BV1GJ411x7h7_p3"
 
 
-def test_bilibili_live_player_cid_scopes_page_subtitle_cache():
-    # Moon Add: the current player can differ from the URL's p after SPA navigation.
+def test_bilibili_ignores_internal_cid_query_when_building_url_cache_key():
+    # Moon Modified: CID is task metadata; URL cache identity stays URL-derived.
     url = "https://www.bilibili.com/video/BV1GJ411x7h7?p=3&ytba_cid=987654"
-    assert cache_key_from_url(url) == "bilibili_BV1GJ411x7h7_cid987654"
+    assert cache_key_from_url(url) == "bilibili_BV1GJ411x7h7_p3"
 
 
 def test_bilibili_page_caption_cache_schema_invalidates_stale_player_results():
-    # Moon Modified: version 6 does not reuse caches created from a stale player CID.
-    assert pipeline.CACHE_SCHEMA_VERSION == 6
+    # Moon Modified: v8 invalidates results containing unverified Bilibili AI tracks.
+    assert pipeline.CACHE_SCHEMA_VERSION == 8
 
 
 def test_truncated_media_download_error_is_retryable():

@@ -1,4 +1,22 @@
-fetch("http://127.0.0.1:18765/health").then(r=>r.json()).then(()=>status.textContent="本机服务已连接").catch(()=>status.textContent="点击处理后将自动启动本机服务");
+// Moon Begin: never rely on an element ID becoming a global variable. `status`
+// collides with the built-in window.status string and silently drops UI writes.
+const serviceStatus=document.querySelector("#status");
+async function refreshServiceStatus(){
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),1500);
+  try{
+    const response=await fetch("http://127.0.0.1:18765/health",{signal:controller.signal,cache:"no-store"});
+    const health=await response.json();
+    if(!response.ok||health?.ok!==true)throw new Error("服务状态异常");
+    serviceStatus.textContent="本机服务已连接";
+  }catch(_){
+    serviceStatus.textContent="本机服务未启动，处理时自动启动";
+  }finally{
+    clearTimeout(timeout);
+  }
+}
+refreshServiceStatus();
+// Moon End
 const serviceLeaseId=`ytba-popup-${crypto.randomUUID()}`;
 // Moon Begin: update progress stays inside the popup and reloads only after the native helper has replaced release files.
 let updateInfo=null;
@@ -75,15 +93,15 @@ options.onclick=()=>chrome.runtime.openOptionsPage();
 // Moon Begin: cache removal starts the local service only for the duration of the request.
 clear_cache.onclick=async()=>{
   if(!confirm("确定清理所有视频字幕、摘要和关键点缓存吗？API 设置不会被删除。"))return;
-  clear_cache.disabled=true;status.textContent="正在启动本机服务…";
+  clear_cache.disabled=true;serviceStatus.textContent="正在启动本机服务…";
   try{
     const native=await chrome.runtime.sendMessage({type:"ensure-service",leaseId:serviceLeaseId});
     if(!native?.ok)throw new Error(native?.error||"本机启动器不可用");
     const response=await fetch("http://127.0.0.1:18765/cache",{method:"DELETE"});
     if(!response.ok)throw new Error(`清理失败 ${response.status}`);
     const result=await response.json();
-    status.textContent=`已清理 ${result.removed} 个视频缓存`;
-  }catch(error){status.textContent=`清理失败：${error.message}`;}
+    serviceStatus.textContent=`已清理 ${result.removed} 个视频缓存`;
+  }catch(error){serviceStatus.textContent=`清理失败：${error.message}`;}
   finally{chrome.runtime.sendMessage({type:"release-service",leaseId:serviceLeaseId});clear_cache.disabled=false;}
 };
 // Moon End

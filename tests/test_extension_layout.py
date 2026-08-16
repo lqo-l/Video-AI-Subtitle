@@ -29,18 +29,42 @@ def test_idle_bilibili_launcher_hides_during_fullscreen_playback():
     assert "body.ytba-fullscreen #ytba-launcher { display:none; }" in css
 
 
+def test_starting_processing_does_not_pause_or_rewind_video():
+    # Moon Add: extraction, translation and summarization must coexist with playback.
+    script = (Path(__file__).parents[1] / "extension" / "content.js").read_text(encoding="utf-8")
+    start_body = script.split("async function start()", 1)[1].split("async function retryFromCheckpoint()", 1)[0]
+    assert ".pause()" not in start_body
+    assert ".currentTime = 0" not in start_body
+
+
 def test_bilibili_page_subtitles_are_resolved_from_url_authoritative_metadata():
     # Moon Modified: never derive a Bilibili subtitle CID from a stale SPA player.
     root = Path(__file__).parents[1] / "extension"
     script = (root / "content.js").read_text(encoding="utf-8")
     background = (root / "background.js").read_text(encoding="utf-8")
-    assert 'type:"fetch-bilibili-subtitles",url:location.href' in script
-    assert "fetchBilibiliSubtitles(message.url)" in background
+    assert 'type:"fetch-bilibili-subtitles",url:urlSnapshot' in script
+    assert "fetchBilibiliSubtitles(message.url,message.requestId,message.navigationGeneration,sender.tab?.id)" in background
     assert "resolveBilibiliUrlResource(rawUrl)" in background
     assert "/x/web-interface/view?${resourceQuery}" in background
     assert "/pgc/view/web/season?ep_id=" in background
     assert "window.player" not in background
     assert 'credentials: "include"' in background
+    assert 'if(location.href!==urlSnapshot)return {segments:[],status:"stale_route"};' in script
+    assert "page_subtitle_identity:pageSubtitles.identity" in script
+    assert 'page_subtitle_status:pageSubtitles.status' in script
+    assert 'result.status==="found"||result.status==="no_tracks"' in script
+    assert 'result.status==="tracks_invalid"' in script
+    assert "for (const selected of ranked)" in background
+    assert "isBilibiliAiCaption" in background
+    assert "tracks.filter(track => !isBilibiliAiCaption(track))" in background
+    assert 'return /^ai-/i.test(String(track?.lan || ""));' in background
+    assert 'world:"MAIN"' in background
+    assert "fetchBilibiliPlayerInPage(tabId, resource)" in background
+    assert '"scripting"' in (root / "manifest.json").read_text(encoding="utf-8")
+    assert 'request_id:requestId,navigation_generation:navigationGeneration' in background
+    assert "subtitle_payload_hash" in background
+    assert "cue_timing_hash" in background
+    assert "page_subtitle_provenance:pageSubtitles.provenance" in script
 
 
 def test_bilibili_never_selects_yt_dlp_caption_tracks():
@@ -68,6 +92,16 @@ def test_chinese_source_replaces_redundant_language_picker_with_static_label():
     assert 'const chineseSource=result?.source_language==="zh"' in script
     assert "languageSelect.hidden=chineseSource" in script
     assert "staticLanguage.hidden=!chineseSource" in script
+    assert "if(previousSourceLanguage!==result.source_language)refreshSubtitleControls();" in script
+
+
+def test_panel_shows_compact_subtitle_source_for_embedded_and_recognized_captions():
+    # Moon Add: provenance should be quiet, concise, and available during streaming.
+    script = (Path(__file__).parents[1] / "extension" / "content.js").read_text(encoding="utf-8")
+    assert "data-subtitle-source" in script
+    assert '`字幕来源：${label}`' in script
+    assert 'result?.source==="whisper"?"语音识别":result?.source?"内置字幕"' in script
+    assert "source:job.source" in script
 
 
 def test_popup_checks_latest_github_release_and_uses_native_host_for_safe_update():
@@ -87,6 +121,16 @@ def test_popup_checks_latest_github_release_and_uses_native_host_for_safe_update
     assert "已是最新版本" in popup
     assert "UPDATE_TIMEOUT_MS" in background
     assert 'https://api.github.com/*' in manifest
+
+
+def test_popup_service_status_does_not_collide_with_window_status():
+    # Moon Add: window.status is a built-in string and cannot represent the DOM node.
+    popup = (Path(__file__).parents[1] / "extension" / "popup.js").read_text(encoding="utf-8")
+    assert 'const serviceStatus=document.querySelector("#status")' in popup
+    assert 'serviceStatus.textContent="本机服务已连接"' in popup
+    assert 'serviceStatus.textContent="本机服务未启动，处理时自动启动"' in popup
+    assert 'status.textContent' not in popup
+    assert "controller.abort(),1500" in popup
 
 
 def test_release_package_keeps_the_project_layout_and_excludes_runtime_bytecode():
@@ -146,6 +190,8 @@ def test_settings_checks_preserve_status_and_disabled_buttons_use_default_cursor
     assert 'cuda_state.classList.add("checking")' in script
     assert 'model_state.textContent="检查中…"' not in script
     assert 'cuda_state.textContent="检查中…"' not in script
+    assert 'whisper_model.onchange=async()=>{' in script
+    assert 'request("/config/whisper-model"' in script
 
 
 def test_settings_downloads_offer_real_cancel_actions():

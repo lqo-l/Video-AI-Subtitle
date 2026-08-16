@@ -103,6 +103,18 @@ ensureService().then(()=>request("/prompts")).then(data=>{
 api_key.onfocus=()=>{if(api_key.value===KEY_PLACEHOLDER)api_key.value="";};
 api_key.onblur=()=>{if(!api_key.value&&api_key.dataset.configured==="true")api_key.value=KEY_PLACEHOLDER;};
 panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
+whisper_model.onchange=async()=>{
+  const selected=whisper_model.value;
+  message.textContent=`正在保存 Whisper ${selected}…`;
+  whisper_model.disabled=true;
+  try{
+    await ensureService();
+    await request("/config/whisper-model",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({whisper_model:selected})});
+    message.textContent=`已保存 Whisper ${selected}`;
+    await checkModel();
+  }catch(error){message.textContent=`模型选择保存失败：${error.message}`;}
+  finally{whisper_model.disabled=false;}
+};
 check_model.onclick=()=>checkModel();
 download_model.onclick=async()=>{const query=modelQuery();try{download_model.disabled=true;renderModel(await request(`/models/download?${query}`,{method:"POST"}),query);}catch(error){model_state.textContent="下载失败";model_state.classList.add("failed");model_detail.textContent=error.message;download_model.disabled=false;}};
 cancel_model_download.onclick=async()=>{try{cancel_model_download.disabled=true;renderModel(await request("/models/download/cancel",{method:"POST"}));}catch(error){model_detail.textContent=`无法取消下载：${error.message}`;cancel_model_download.disabled=false;}};

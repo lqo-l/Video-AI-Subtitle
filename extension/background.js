@@ -83,11 +83,24 @@ function bilibiliCaptionLanguage(value) {
   return null;
 }
 
+function isBilibiliAiCaption(track) {
+  // Moon Modified: the player UI marks AI captions through the `ai-*`
+  // language namespace. `ai_type` is also non-zero on some ordinary zh-Hans
+  // tracks, so using it as an exclusion flag hides valid human captions.
+  return /^ai-/i.test(String(track?.lan || ""));
+}
+
 function cleanBilibiliCaption(content) {
   return String(content || "").trim()
     .replace(/^(?:\.{3,}|…{2,})\s*/, "")
     .replace(/\s*(?:\.{3,}|…{2,})$/, "")
     .trim();
+}
+
+async function diagnosticHash(value) {
+  const bytes = new TextEncoder().encode(String(value ?? ""));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("").slice(0, 24);
 }
 
 async function fetchBilibiliJson(url) {
@@ -129,37 +142,81 @@ async function resolveBilibiliUrlResource(rawUrl) {
   throw new Error("不支持的 B 站视频链接");
 }
 
-async function fetchBilibiliSubtitles(rawUrl) {
+async function fetchBilibiliPlayerInPage(tabId, resource) {
+  // Moon Begin: subtitle availability depends on Bilibili's first-party page
+  // session. Run only the player API request in the current page's MAIN world;
+  // no cookie value is read or returned to the extension.
+  if (!Number.isInteger(tabId)) throw new Error("无法确认当前 B站页面标签");
+  const results = await chrome.scripting.executeScript({
+    target:{tabId,frameIds:[0]}, world:"MAIN",
+    args:[resource.bvid,resource.cid],
+    func:async (bvid,cid)=>{
+      const response=await fetch(
+        `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(bvid)}&cid=${encodeURIComponent(cid)}`,
+        {cache:"no-store",credentials:"include"},
+      );
+      if(!response.ok)throw new Error(`B站播放器接口 ${response.status}`);
+      const payload=await response.json();
+      if(Number(payload?.code||0)!==0)throw new Error(payload?.message||"B站播放器接口返回失败");
+      return payload.data;
+    },
+  });
+  const result=results?.[0]?.result;
+  if(!result)throw new Error("B站页面未返回播放器字幕信息");
+  return result;
+  // Moon End
+}
+
+async function fetchBilibiliSubtitles(rawUrl, requestId = "", navigationGeneration = 0, tabId = null) {
+  const requestedUrlHash = await diagnosticHash(new URL(rawUrl).origin + new URL(rawUrl).pathname + new URL(rawUrl).search);
   const resource = await resolveBilibiliUrlResource(rawUrl);
-  const player = await fetchBilibiliJson(
-    `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(resource.bvid)}&cid=${resource.cid}`
-  );
+  const player = await fetchBilibiliPlayerInPage(tabId, resource);
   const tracks = Array.isArray(player?.subtitle?.subtitles) ? player.subtitle.subtitles : [];
-  const ranked = tracks.map(track => ({track, language: bilibiliCaptionLanguage(track?.lan)}))
+  const playerResponseHash = await diagnosticHash(JSON.stringify(tracks.map(track => ({
+    id:track?.id ?? track?.id_str ?? "", lan:track?.lan ?? "", ai_type:track?.ai_type ?? "",
+    url:track?.subtitle_url ?? "",
+  }))));
+  const baseProvenance={request_id:requestId,navigation_generation:navigationGeneration,requested_url_hash:requestedUrlHash,player_response_hash:playerResponseHash};
+  const ignoredAiTrackCount = tracks.filter(isBilibiliAiCaption).length;
+  const ranked = tracks.filter(track => !isBilibiliAiCaption(track))
+    .map(track => ({track, language: bilibiliCaptionLanguage(track?.lan)}))
     .filter(item => item.language && item.track?.subtitle_url)
     .sort((left, right) => ["en", "ja", "zh"].indexOf(left.language) - ["en", "ja", "zh"].indexOf(right.language));
-  const selected = ranked[0];
-  if (!selected) return {segments: [], identity: resource};
+  if (!ranked.length) return {segments: [], identity: resource, status: "no_tracks", trackCount: tracks.length, ignoredAiTrackCount, provenance:baseProvenance};
 
-  const subtitleUrl = selected.track.subtitle_url.startsWith("//")
-    ? `https:${selected.track.subtitle_url}` : selected.track.subtitle_url;
-  const response = await fetch(subtitleUrl, {cache: "no-store", credentials: "include"});
-  if (!response.ok) throw new Error(`B站字幕文件 ${response.status}`);
-  const subtitle = await response.json();
-  const segments = (Array.isArray(subtitle?.body) ? subtitle.body : [])
-    .filter(item => Number.isFinite(item?.from) && Number.isFinite(item?.to) && item.to > item.from)
-    .map(item => ({start: item.from, end: item.to, en: cleanBilibiliCaption(item.content), source_language: selected.language}))
-    .filter(item => item.en);
-
-  // A valid track should cover a meaningful part of the URL-authoritative resource.
-  const endTime = Math.max(0, ...segments.map(item => item.end));
-  const duration = resource.duration;
-  const minimumCoverage = Math.min(60, duration * .55);
-  const maximumCoverage = duration + Math.max(15, duration * .05);
-  if (!segments.length || (duration > 0 && (endTime < minimumCoverage || endTime > maximumCoverage))) {
-    return {segments: [], identity: resource};
+  // Moon Modified: validate every candidate for this exact URL resource. A bad
+  // first track does not prove that later official/AI tracks are unavailable.
+  const rejectedTracks = [];
+  for (const selected of ranked) {
+    const subtitleUrl = selected.track.subtitle_url.startsWith("//")
+      ? `https:${selected.track.subtitle_url}` : selected.track.subtitle_url;
+    const response = await fetch(subtitleUrl, {cache: "no-store", credentials: "include"});
+    if (!response.ok) {
+      rejectedTracks.push({language:selected.language, reason:`http_${response.status}`});
+      continue;
+    }
+    const subtitle = await response.json();
+    const segments = (Array.isArray(subtitle?.body) ? subtitle.body : [])
+      .filter(item => Number.isFinite(item?.from) && Number.isFinite(item?.to) && item.to > item.from)
+      .map(item => ({start: item.from, end: item.to, en: cleanBilibiliCaption(item.content), source_language: selected.language}))
+      .filter(item => item.en);
+    const endTime = Math.max(0, ...segments.map(item => item.end));
+    const provenance={...baseProvenance,
+      track_id:String(selected.track?.id_str ?? selected.track?.id ?? ""),
+      track_language:String(selected.track?.lan ?? ""),track_kind:String(selected.track?.ai_type ?? selected.track?.type ?? ""),
+      subtitle_url_hash:await diagnosticHash(subtitleUrl),
+      subtitle_payload_hash:await diagnosticHash(JSON.stringify(subtitle)),
+      cue_timing_hash:await diagnosticHash(JSON.stringify(segments.map(item=>[item.start,item.end]))),
+    };
+    const duration = resource.duration;
+    const minimumCoverage = Math.min(60, duration * .55);
+    const maximumCoverage = duration + Math.max(15, duration * .05);
+    if (segments.length && (!duration || (endTime >= minimumCoverage && endTime <= maximumCoverage))) {
+      return {segments, language: selected.language, identity: resource, status: "found", trackCount: tracks.length, ignoredAiTrackCount, rejectedTracks, provenance};
+    }
+    rejectedTracks.push({language:selected.language, reason:segments.length ? "duration_mismatch" : "empty", endTime});
   }
-  return {segments, language: selected.language, identity: resource};
+  return {segments: [], identity: resource, status: "tracks_invalid", trackCount: tracks.length, ignoredAiTrackCount, rejectedTracks, provenance:baseProvenance};
 }
 // Moon End
 
@@ -231,7 +288,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: true });
   }
   if (message.type === "fetch-bilibili-subtitles") {
-    fetchBilibiliSubtitles(message.url).then(sendResponse).catch(error => sendResponse({segments: [], error: error.message}));
+    fetchBilibiliSubtitles(message.url,message.requestId,message.navigationGeneration,sender.tab?.id).then(sendResponse).catch(error => sendResponse({segments: [], status:"lookup_failed", error: error.message, provenance:{request_id:message.requestId||"",navigation_generation:message.navigationGeneration||0}}));
     return true;
   }
   if(message.type==="check-extension-update"){

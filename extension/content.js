@@ -28,6 +28,8 @@
   const defaultLauncherPrefs = {side:"right", top:180};
   let launcherPrefs = {...defaultLauncherPrefs};
   const site = location.hostname.includes("bilibili.com") ? "bilibili" : "youtube";
+  // Moon Add: correlate one page action across content, background and local-service logs.
+  let subtitleRequestGeneration=0;
 
   const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
   const formatTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -56,6 +58,15 @@
 
   function sourceLanguageLabel() {
     return ({en:"英文",ja:"日文",zh:"中文"})[result?.source_language] || "原文";
+  }
+
+  // Moon Add: keep provenance visible without exposing implementation details.
+  function refreshSubtitleSource() {
+    const element=document.querySelector("#ytba-root [data-subtitle-source]");
+    if(!element)return;
+    const label=result?.source==="whisper"?"语音识别":result?.source?"内置字幕":"";
+    element.textContent=label?`字幕来源：${label}`:"";
+    element.hidden=!label;
   }
 
   async function safeSendMessage(message) {
@@ -94,22 +105,52 @@
 
   // Moon Begin: Bilibili subtitles are resolved by the URL in the background worker.
   // This deliberately does not inspect the SPA player, whose state can be stale.
-  async function getBilibiliPageSubtitles(){
+  async function getBilibiliPageSubtitles(urlSnapshot,requestId,navigationGeneration){
     if(site!=="bilibili")return {segments:[]};
     try{
-      const response=await safeSendMessage({type:"fetch-bilibili-subtitles",url:location.href});
+      const response=await safeSendMessage({type:"fetch-bilibili-subtitles",url:urlSnapshot,requestId,navigationGeneration});
+      // Moon Add: Bilibili is a SPA. Do not attach a completed request for the
+      // previous route to a newly navigated video or part.
+      if(location.href!==urlSnapshot)return {segments:[],status:"stale_route"};
       return Array.isArray(response?.segments)?response:{segments:[]};
     }catch(error){
       console.warn("[YTBA] Bilibili subtitles unavailable:",error);
-      return {segments:[]};
+      return {segments:[],status:"lookup_failed",error:error.message};
     }
   }
 
-  function jobUrlForPageSubtitles(pageSubtitles){
-    if(site!=="bilibili"||!Number.isSafeInteger(Number(pageSubtitles?.identity?.cid)))return location.href;
-    const url=new URL(location.href);
-    url.searchParams.set("ytba_cid",String(pageSubtitles.identity.cid));
-    return url.href;
+  async function resolveCurrentBilibiliSubtitles(initialUrl,maxAttempts=3){
+    const navigationGeneration=++subtitleRequestGeneration;
+    const requestId=`${serviceLeaseId}-${navigationGeneration}-${crypto.randomUUID()}`;
+    let urlSnapshot=initialUrl;
+    let lastResult={segments:[],status:"lookup_failed",error:"B站字幕接口不可用"};
+    for(let attempt=1;attempt<=maxAttempts;attempt+=1){
+      const result=await getBilibiliPageSubtitles(urlSnapshot,requestId,navigationGeneration);
+      if(location.href!==urlSnapshot||result.status==="stale_route"){
+        urlSnapshot=location.href;
+        continue;
+      }
+      if(result.status==="found"||result.status==="no_tracks")return {urlSnapshot,result};
+      lastResult=result;
+      if(attempt<maxAttempts)await new Promise(resolve=>setTimeout(resolve,250));
+    }
+    return {urlSnapshot,result:lastResult};
+  }
+
+  function ensureUsableBilibiliLookup(result){
+    if(site!=="bilibili")return;
+    if(result.status==="lookup_failed")throw new Error(`读取当前视频字幕失败：${result.error||"B站接口不可用"}`);
+    if(result.status==="tracks_invalid")throw new Error("当前视频存在字幕轨，但轨道校验失败；为避免串字幕，未启动语音识别");
+  }
+
+  function logBilibiliLookup(result){
+    if(site!=="bilibili")return Promise.resolve();
+    return api("/diagnostics/page-subtitles",{method:"POST",body:JSON.stringify({
+      status:result.status||"lookup_failed",identity:result.identity||null,
+      track_count:Number(result.trackCount)||0,ignored_ai_track_count:Number(result.ignoredAiTrackCount)||0,
+      rejected_tracks:result.rejectedTracks||[],error:result.error||"",
+      provenance:result.provenance||null
+    })}).catch(()=>{});
   }
   // Moon End
 
@@ -184,7 +225,7 @@
     document.querySelector("#ytba-launcher")?.remove();
     root = document.createElement("aside");
     root.id = "ytba-root";
-    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手；右键关闭" aria-label="展开字幕助手">译</button><div class="ytba-resize-handle" data-resize title="拖拽调整侧栏宽度"></div><div class="ytba-head"><div class="ytba-brand"><span class="ytba-brand-mark" aria-hidden="true">译</span><span><strong>AI 双语字幕助手</strong><small>字幕 · 翻译 · 摘要</small></span></div><button class="ytba-icon-button" data-retry title="从缓存继续" aria-label="重试">↻</button><button class="ytba-icon-button ytba-collapse" data-close title="收缩侧栏" aria-label="收缩侧栏">&gt;</button><button class="ytba-icon-button ytba-dismiss" data-dismiss title="关闭助手" aria-label="关闭助手">×</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"></div><span data-status>准备中</span><button type="button" class="ytba-play-completed" data-play-completed hidden>播放视频</button></div><div class="ytba-local-progress" data-local-progress hidden></div><div class="ytba-progress"><div style="width:0%"></div></div><div class="ytba-task-actions"><button data-task="pause">暂停</button><button data-task="cancel">取消</button></div></div><div class="ytba-primary-tools"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control ytba-language">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select><span data-language-static hidden>中文</span></label><button class="ytba-control" data-layout-mode>布局：覆盖</button><details class="ytba-tools-menu"><summary title="更多工具">•••</summary><div class="ytba-tools-popover"><button class="ytba-control" data-control="smaller">字号 −</button><button class="ytba-control" data-control="larger">字号 ＋</button><button class="ytba-control" data-control="up">字幕上移</button><button class="ytba-control" data-control="down">字幕下移</button><button class="ytba-control" data-side>移到左侧</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-export disabled>导出 Markdown</button><button class="ytba-control" data-control="reset">恢复显示默认值</button></div></details></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
+    root.innerHTML = `<button class="ytba-edge-handle" data-expand title="展开字幕助手；右键关闭" aria-label="展开字幕助手">译</button><div class="ytba-resize-handle" data-resize title="拖拽调整侧栏宽度"></div><div class="ytba-head"><div class="ytba-brand"><span class="ytba-brand-mark" aria-hidden="true">译</span><span><strong>AI 双语字幕助手</strong><small>字幕 · 翻译 · 摘要</small></span></div><button class="ytba-icon-button" data-retry title="从缓存继续" aria-label="重试">↻</button><button class="ytba-icon-button ytba-collapse" data-close title="收缩侧栏" aria-label="收缩侧栏">&gt;</button><button class="ytba-icon-button ytba-dismiss" data-dismiss title="关闭助手" aria-label="关闭助手">×</button></div><div class="ytba-status"><div class="ytba-status-row"><div class="ytba-pulse" aria-hidden="true"></div><span data-status>准备中</span><button type="button" class="ytba-play-completed" data-play-completed hidden>播放视频</button></div><div class="ytba-local-progress" data-local-progress hidden></div><div class="ytba-progress"><div style="width:0%"></div></div><div class="ytba-task-actions"><button data-task="pause">暂停</button><button data-task="cancel">取消</button></div></div><div class="ytba-primary-tools"><button class="ytba-control" data-control="visible">隐藏字幕</button><label class="ytba-control ytba-language">语言 <select data-control="language"><option value="bilingual">原文 + 中文</option><option value="zh">仅中文</option><option value="source">仅原文</option></select><span data-language-static hidden>中文</span></label><button class="ytba-control" data-layout-mode>布局：覆盖</button><details class="ytba-tools-menu"><summary title="更多工具">•••</summary><div class="ytba-tools-popover"><button class="ytba-control" data-control="smaller">字号 −</button><button class="ytba-control" data-control="larger">字号 ＋</button><button class="ytba-control" data-control="up">字幕上移</button><button class="ytba-control" data-control="down">字幕下移</button><button class="ytba-control" data-side>移到左侧</button><button class="ytba-control" data-control="background">字幕背景</button><button class="ytba-control" data-export disabled>导出 Markdown</button><button class="ytba-control" data-control="reset">恢复显示默认值</button></div></details></div><div class="ytba-subtitle-source" data-subtitle-source hidden></div><div class="ytba-tabs"><button class="active" data-tab="transcript"><span>字幕</span><i class="ytba-tab-indicator"></i></button><button data-tab="summary"><span>摘要</span><i class="ytba-tab-indicator"></i></button></div><div class="ytba-body"></div>`;
     // Moon Begin: collapse into a persistent edge handle instead of deleting the panel.
     root.querySelector("[data-close]").onclick = event => { event.stopPropagation(); setPanelCollapsed(true); };
     root.querySelector("[data-dismiss]").onclick = event => { event.stopPropagation(); closeAssistant(); };
@@ -542,16 +583,19 @@
     resetCompletionNotice();
     renderedRecognitionCount=-1;
     renderedTranslationCount=-1;
-    const player = video();
-    if (player) { player.pause(); player.currentTime = 0; }
+    // Moon Modified: processing runs alongside playback; starting a task must
+    // not pause the video or discard the viewer's current position.
     ensurePanel();
     resetCompletionNotice();
     try {
       updateStatus("正在启动本机服务", 2);
       await ensureService();
       if(assistantDismissed){releaseService().catch(()=>{});return;}
-      const pageSubtitles=await getBilibiliPageSubtitles();
-      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:jobUrlForPageSubtitles(pageSubtitles),page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
+      const lookup=await resolveCurrentBilibiliSubtitles(location.href);
+      const pageSubtitles=lookup.result;
+      await logBilibiliLookup(pageSubtitles);
+      ensureUsableBilibiliLookup(pageSubtitles);
+      const createdJob = await api("/jobs", {method:"POST", body:JSON.stringify({url:lookup.urlSnapshot,page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language,page_subtitle_identity:pageSubtitles.identity,page_subtitle_status:pageSubtitles.status,page_subtitle_provenance:pageSubtitles.provenance})});
       if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});releaseService().catch(()=>{});return;}
       job=createdJob;
       poll();
@@ -578,8 +622,11 @@
       summaryComplete=false;
       await ensureService();
       if(assistantDismissed){releaseService().catch(()=>{});return;}
-      const pageSubtitles=await getBilibiliPageSubtitles();
-      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:jobUrlForPageSubtitles(pageSubtitles),page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language})});
+      const lookup=await resolveCurrentBilibiliSubtitles(location.href);
+      const pageSubtitles=lookup.result;
+      await logBilibiliLookup(pageSubtitles);
+      ensureUsableBilibiliLookup(pageSubtitles);
+      const createdJob=await api("/jobs",{method:"POST",body:JSON.stringify({url:lookup.urlSnapshot,page_subtitles:pageSubtitles.segments,page_subtitle_language:pageSubtitles.language,page_subtitle_identity:pageSubtitles.identity,page_subtitle_status:pageSubtitles.status,page_subtitle_provenance:pageSubtitles.provenance})});
       if(assistantDismissed){api(`/jobs/${createdJob.id}/cancel`,{method:"POST"}).catch(()=>{});releaseService().catch(()=>{});return;}
       job=createdJob;
       poll();
@@ -607,9 +654,14 @@
       // Moon Begin: render each completed translation batch immediately.
       const previewChanged=job.recognized_segments!==renderedRecognitionCount||job.translated_segments!==renderedTranslationCount;
       if (job.preview_segments?.length && previewChanged) {
+        const previousSourceLanguage=result?.source_language;
         renderedRecognitionCount=job.recognized_segments;
         renderedTranslationCount = job.translated_segments;
-        result = {segments: job.preview_segments, summary: "", key_points: [], source_language:job.source_language, platform:job.platform};
+        result = {segments: job.preview_segments, summary: "", key_points: [], source_language:job.source_language, platform:job.platform, source:job.source};
+        refreshSubtitleSource();
+        // Moon Add: Whisper detects language before transcription completes.
+        // Keep the language control in sync with streaming preview state.
+        if(previousSourceLanguage!==result.source_language)refreshSubtitleControls();
         if (job.translated_segments > 0) {
           setupPlayback();
           updateStatus(`已翻译 ${job.translated_segments} / ${job.total_segments}，可手动播放`, job.progress);
@@ -650,6 +702,7 @@
   function setupResult() {
     setupPlayback();
     const root = ensurePanel();
+    refreshSubtitleSource();
     root.querySelector("[data-export]").disabled = false;
     renderTab(activeTab);
   }

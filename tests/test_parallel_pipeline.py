@@ -109,5 +109,5 @@ def test_summary_failure_does_not_discard_translated_subtitles(tmp_path, monkeyp
     assert job.summary_state == "failed"
     assert job.result.segments[0].zh == "你好"
     assert job.result.summary == ""
-    assert not (tmp_path / "cache" / "summaryfail.v6.json").exists()
-    assert (tmp_path / "cache" / "summaryfail.partial.v6.json").exists()
+    assert not (tmp_path / "cache" / "summaryfail.v8.json").exists()
+    assert (tmp_path / "cache" / "summaryfail.partial.v8.json").exists()

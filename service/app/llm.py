@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 
 import httpx
 
 from .models import Segment, ServiceConfig
 from .prompts import format_prompt, load_prompt
+from .diagnostics import log_event
 
 
 class LlmClient:
@@ -15,25 +17,37 @@ class LlmClient:
         self.config = config
         self.client = httpx.AsyncClient(timeout=180)
         self._prefer_chat = False  # Moon Add: remember a gateway's working compatibility route.
+        self.diagnostic_id = ""
 
     async def close(self) -> None:
         await self.client.aclose()
 
-    async def _post_with_retry(self, url: str, **kwargs) -> httpx.Response:
+    async def _post_with_retry(self, url: str, max_attempts: int = 3, route: str = "", **kwargs) -> httpx.Response:
         """Retry temporary gateway failures without repeating successful requests."""
         # Moon Begin
         transient_statuses = {408, 429, 500, 502, 503, 504}
         last_error: Exception | None = None
-        for attempt in range(3):
+        for attempt in range(max_attempts):
+            started = time.monotonic()
             try:
                 response = await self.client.post(url, **kwargs)
-                if response.status_code not in transient_statuses or attempt == 2:
+                log_event(
+                    "llm_request_attempt", job_id=self.diagnostic_id, route=route,
+                    attempt=attempt + 1, status=response.status_code,
+                    elapsed_seconds=round(time.monotonic() - started, 2),
+                )
+                if response.status_code not in transient_statuses or attempt == max_attempts - 1:
                     return response
                 retry_after = response.headers.get("Retry-After", "")
                 delay = float(retry_after) if retry_after.replace(".", "", 1).isdigit() else 2**attempt
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last_error = exc
-                if attempt == 2:
+                log_event(
+                    "llm_request_attempt", job_id=self.diagnostic_id, route=route,
+                    attempt=attempt + 1, status=type(exc).__name__,
+                    elapsed_seconds=round(time.monotonic() - started, 2),
+                )
+                if attempt == max_attempts - 1:
                     raise
                 delay = 2**attempt
             await asyncio.sleep(min(delay, 10))
@@ -56,12 +70,14 @@ class LlmClient:
         if not self._prefer_chat:
             response = await self._post_with_retry(
                 f"{base}/responses",
+                max_attempts=1, route="responses",
                 headers=headers,
                 json={"model": model, "instructions": system, "input": user},
             )
         if response is None or response.status_code in (404, 405, 408, 429, 500, 501, 502, 503, 504):
             response = await self._post_with_retry(
                 f"{base}/chat/completions",
+                route="chat_completions",
                 headers=headers,
                 json={
                     "model": model,
@@ -106,6 +122,9 @@ class LlmClient:
                 on_chunk(fallback)
                 return fallback
             response.raise_for_status()
+            # Moon Add: a working streaming Chat route should steer concurrent
+            # and later translation batches away from an unreliable Responses route.
+            self._prefer_chat = True
             async for line in response.aiter_lines():
                 if control:
                     await control()
@@ -149,6 +168,11 @@ class LlmClient:
                 if not item.zh
             ]
             payload = {"context_only": context, "translate": current}
+            batch_started = time.monotonic()
+            log_event(
+                "translation_batch_started", job_id=self.diagnostic_id,
+                offset=offset, item_count=len(current), model=self.config.translation_model,
+            )
             text = await self._request(
                 self.config.translation_model,
                 format_prompt("translation", language_name=language_name),
@@ -169,6 +193,10 @@ class LlmClient:
                 missing = sorted(expected_ids - set(translated))
                 retry_ids = [{"id": i, "en": segments[i].en} for i in missing]
                 retry_payload = {"context_only": context, "translate": retry_ids}
+                log_event(
+                    "translation_batch_missing_retry", job_id=self.diagnostic_id,
+                    offset=offset, missing_count=len(missing),
+                )
                 retry_text = await self._request(
                     self.config.translation_model,
                     f"翻译以下{language_name}句子为简体中文。只返回 JSON 数组，每项格式为 {{id, zh}}，不得添加 Markdown。",
@@ -192,6 +220,11 @@ class LlmClient:
                 # Moon Modified: publish the completed count after every batch.
                 completed = sum(bool(item.zh) for item in segments)
                 progress(completed, len(segments))
+            log_event(
+                "translation_batch_completed", job_id=self.diagnostic_id,
+                offset=offset, item_count=len(current),
+                elapsed_seconds=round(time.monotonic() - batch_started, 2),
+            )
 
     async def summarize(
         self, title: str, segments: list[Segment], on_stream=None, resume_from: str = "", control=None
@@ -202,7 +235,13 @@ class LlmClient:
             # Moon Modified: summarization starts from the stable extracted original text.
             lines.append(f"{ts} {s.en}")
         transcript = "\n".join(lines)
-        json_prompt = "总结视频内容。只返回 JSON 对象：summary 为 2-4 段中文 Markdown 摘要，key_points 为 5-12 条中文要点字符串。不得添加代码围栏。"
+        # Moon Modified: sparse captions must produce a sparse summary rather than hallucinated detail.
+        json_prompt = (
+            "仅根据给定标题和字幕总结视频；标题只用于理解主题，不得把宣传性描述当作视频已讲述的事实。"
+            "禁止补充外部知识、猜测画面、扩写背景或虚构细节。信息不足时简短说明可总结的信息有限，"
+            "不要凑段落或要点。只返回 JSON 对象：summary 为 1-4 段中文摘要，"
+            "key_points 为 0-12 条有明确输入依据的中文要点字符串。不得添加代码围栏。"
+        )
         user_msg = f"标题：{title}\n\n字幕：\n{transcript}"
         if on_stream:
             # Moon Begin: stream readable Markdown instead of incomplete JSON fragments.

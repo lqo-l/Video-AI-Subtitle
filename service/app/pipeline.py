@@ -45,7 +45,7 @@ CUDA_PACKAGES = (
     ("nvidia-cudnn-cu12", "cuDNN 9"),
     ("nvidia-cuda-nvrtc-cu12", "CUDA NVRTC 12"),
 )  # Moon Add
-CACHE_SCHEMA_VERSION = 6  # Moon Modified: Bilibili page captions now use URL-authoritative CID resolution.
+CACHE_SCHEMA_VERSION = 8  # Moon Modified: invalidate caches that may contain unverified Bilibili AI tracks.
 SUPPORTED_LANGUAGES = ("en", "ja", "zh")
 WHISPER_MODEL_ENDPOINTS = (
     ("HF 镜像", "https://hf-mirror.com"),
@@ -162,10 +162,6 @@ def cache_key_from_url(url: str) -> str:
     video_id = video_id_from_url(url)
     if platform == "bilibili":
         query = parse_qs(urlparse(url).query)
-        current_cid = query.get("ytba_cid", [""])[0]
-        if current_cid.isdecimal() and int(current_cid) > 0:
-            # Moon Add: a page subtitle belongs to the live player CID, which can differ from URL p after SPA navigation.
-            return f"bilibili_{video_id}_cid{current_cid}"
         page = query.get("p", ["1"])[0]
         return f"bilibili_{video_id}_p{page}"
     return video_id  # Moon Modified: preserve existing YouTube cache filenames.
@@ -630,6 +626,8 @@ def _transcribe(
     transcription_progress: Callable[[float, float], None] | None = None,
     expected_duration: float | None = None,
     transcription_preview: Callable[[list[Segment], str], None] | None = None,
+    initial_segments: list[Segment] | None = None,
+    language_hint: str | None = None,
 ) -> tuple[list[Segment], str]:
     _configure_private_cuda_runtime()  # Moon Add: load optional one-click runtime wheels.
     import ctranslate2
@@ -653,9 +651,15 @@ def _transcribe(
         # not necessarily while constructing WhisperModel or calling transcribe.
         compute_type = "float16" if active_device == "cuda" else "int8"
         model = WhisperModel(prepared_model, device=active_device, compute_type=compute_type)
-        items, info = model.transcribe(
-            str(audio), language=None, vad_filter=True, beam_size=5
-        )
+        seed = list(initial_segments or [])
+        resume_from = max((segment.end for segment in seed), default=0.0)
+        transcribe_options = {
+            "language": language_hint if language_hint in SUPPORTED_LANGUAGES else None,
+            "vad_filter": True, "beam_size": 5,
+        }
+        if resume_from > 0:
+            transcribe_options["clip_timestamps"] = [resume_from]
+        items, info = model.transcribe(str(audio), **transcribe_options)
         language = info.language if info.language in SUPPORTED_LANGUAGES else ""
         if not language:
             raise RuntimeError(
@@ -663,13 +667,13 @@ def _transcribe(
             )
         total_duration = float(expected_duration or getattr(info, "duration", 0) or 0)
         if transcription_progress:
-            transcription_progress(0, total_duration)
-        preview_segments: list[Segment] = []
+            transcription_progress(resume_from, total_duration)
+        preview_segments: list[Segment] = seed
         if transcription_preview:
-            transcription_preview([], language)
+            transcription_preview(list(preview_segments), language)
         for item in items:
             text = item.text.strip()
-            if text:
+            if text and item.end > resume_from + 0.01:
                 preview_segments.append(Segment(
                     start=item.start, end=item.end, en=text,
                     source_language=language,
@@ -699,7 +703,8 @@ def _transcribe(
 
 async def process_job(
     job_id: str, url: str, page_subtitles: list[Segment] | None = None,
-    page_subtitle_language: str | None = None,
+    page_subtitle_language: str | None = None, page_subtitle_cid: int | None = None,
+    page_subtitle_provenance: dict | None = None,
 ) -> None:
     job = JOBS[job_id]
     control = JOB_CONTROLS.setdefault(job_id, JobControl())  # Moon Add
@@ -707,10 +712,24 @@ async def process_job(
     platform = platform_from_url(url)
     job.platform = platform
     cache_key = cache_key_from_url(url)
+    if platform == "bilibili" and page_subtitles and page_subtitle_cid:
+        # Moon Add: keep the official resource CID as cache metadata instead of
+        # mutating the user-visible URL with a self-authored query parameter.
+        cache_key = f"{cache_key}_cid{page_subtitle_cid}"
     cache_path = CACHE_DIR / f"{cache_key}.v{CACHE_SCHEMA_VERSION}.json"
+    provenance = page_subtitle_provenance or {}
+    trace_context = {
+        "request_id": provenance.get("request_id", ""),
+        "navigation_generation": provenance.get("navigation_generation", 0),
+        "subtitle_payload_hash": provenance.get("subtitle_payload_hash", ""),
+        "subtitle_url_hash": provenance.get("subtitle_url_hash", ""),
+        "cue_timing_hash": provenance.get("cue_timing_hash", ""),
+    }
+    log_event("job_cache_checked", job_id=job_id, cache_key=cache_key, exists=cache_path.exists(), **trace_context)
     if cache_path.exists():
         job.state, job.stage, job.progress = "completed", "已从缓存加载", 100
         job.result = ProcessedVideo.model_validate_json(cache_path.read_text(encoding="utf-8"))
+        log_event("job_cache_loaded", job_id=job_id, cache_key=cache_key, source=job.result.source, segment_count=len(job.result.segments), **trace_context)
         if job.result.source == "bilibili_subtitles":
             # Moon Add: repair existing page-caption caches created before cue-padding cleanup.
             for segment in job.result.segments:
@@ -720,6 +739,7 @@ async def process_job(
         job.preview_segments = job.result.segments
         job.platform = job.result.platform
         job.source_language = job.result.source_language
+        job.source = job.result.source
         job.translated_segments = len(job.result.segments)
         job.total_segments = len(job.result.segments)
         job.summary_partial = job.result.summary
@@ -739,6 +759,8 @@ async def process_job(
     current_summary: str = ""
     current_key_points: list[str] = []
     summary_already_completed = False
+    recognition_seed: list[Segment] = []
+    recognition_language = ""
 
     # Try loading from partial cache for resume
     if partial_path.exists():
@@ -760,7 +782,16 @@ async def process_job(
             summary_already_completed = data.get("summary_state") == "completed"
             # Moon Modified: fully translated partial data is still useful when only
             # summarization failed; reuse it instead of downloading/transcribing again.
-            resume = bool(segments)
+            extraction_complete = data.get("extraction_state", "completed") == "completed"
+            if extraction_complete:
+                resume = bool(segments)
+            else:
+                # Moon Add: an interrupted Whisper preview is a recognition seed,
+                # never a complete transcript ready for translation.
+                recognition_seed = segments
+                recognition_language = source_language
+                segments = []
+                resume = False
         except Exception:
             segments = []
 
@@ -775,6 +806,7 @@ async def process_job(
                 extracted = page_subtitles
                 source = "bilibili_subtitles"
                 source_language = page_subtitle_language or page_subtitles[0].source_language
+                log_event("page_subtitles_accepted", job_id=job_id, cache_key=cache_key, segment_count=len(extracted), source_language=source_language, **trace_context)
                 job.stage, job.progress = "已读取 B 站当前视频字幕", 50
                 info, audio = {"title": video_id, "duration": None}, None
             else:
@@ -819,10 +851,23 @@ async def process_job(
                 def report_transcription_preview(
                     recognized: list[Segment], language: str,
                 ) -> None:
-                    # Moon Add: atomically expose each recognized source segment.
+                    # Moon Modified: expose and persist each recognized source
+                    # segment so a terminated service can resume from it.
                     job.preview_segments = recognized
                     job.recognized_segments = len(recognized)
                     job.source_language = language
+                    job.source = "whisper"
+                    if recognized:
+                        _write_json_atomic(partial_path, {
+                            "title": info.get("title", video_id),
+                            "duration": info.get("duration"), "source": "whisper",
+                            "platform": platform, "source_language": language,
+                            "segments": [segment.model_dump() for segment in recognized],
+                            "extraction_state": "transcribing",
+                            "transcription_seconds": recognized[-1].end,
+                            "summary_partial": "", "summary_state": "idle",
+                            "summary": "", "key_points": [],
+                        })
 
                 job.stage, job.progress = "正在通过 HF 镜像下载语音模型 0%", 25
                 extracted, source_language = await asyncio.to_thread(
@@ -832,6 +877,7 @@ async def process_job(
                     config.model_install_dir,
                     report_transcription, info.get("duration"),
                     report_transcription_preview,
+                    recognition_seed, recognition_language,
                 )
                 await control.checkpoint()
                 # Moon End
@@ -849,6 +895,7 @@ async def process_job(
                 "title": title, "duration": duration, "source": source,
                 "platform": platform, "source_language": source_language,
                 "segments": [s.model_dump() for s in segments],
+                "extraction_state": "completed",
                 "summary_partial": "", "summary_state": "idle",
                 "summary": "", "key_points": [],
             })
@@ -861,6 +908,7 @@ async def process_job(
     job.preview_segments = segments
     job.platform = platform
     job.source_language = source_language
+    job.source = source
     job.total_segments = len(segments)
     job.stage, job.progress = f"翻译中文字幕 0 / {len(segments)}", 55
     job.translated_segments = sum(1 for segment in segments if segment.zh)
@@ -899,6 +947,8 @@ async def process_job(
 
     config = load_config()
     client = LlmClient(config)
+    # Moon Add: correlate privacy-safe LLM timing logs with the owning video job.
+    client.diagnostic_id = job_id
     try:
         # Moon Begin: both coroutines receive the extracted original transcript and
         # start before either is awaited. Their state and failures remain independent.
@@ -988,13 +1038,14 @@ async def process_job(
 
 async def _run_job(
     job_id: str, url: str, page_subtitles: list[Segment] | None = None,
-    page_subtitle_language: str | None = None,
+    page_subtitle_language: str | None = None, page_subtitle_cid: int | None = None,
+    page_subtitle_provenance: dict | None = None,
 ) -> None:
     """Keep cancellation visible instead of leaving a stale running job."""
     # Moon Begin
     try:
         log_event("job_started", job_id=job_id, platform=platform_from_url(url))
-        await process_job(job_id, url, page_subtitles, page_subtitle_language)
+        await process_job(job_id, url, page_subtitles, page_subtitle_language, page_subtitle_cid, page_subtitle_provenance)
         result = JOBS[job_id].result
         log_event("job_completed", job_id=job_id, state=JOBS[job_id].state, source=result.source if result else "")
     except asyncio.CancelledError:
@@ -1016,16 +1067,22 @@ async def _run_job(
 
 def create_job(
     url: str, page_subtitles: list[Segment] | None = None,
-    page_subtitle_language: str | None = None,
+    page_subtitle_language: str | None = None, page_subtitle_cid: int | None = None,
+    page_subtitle_provenance: dict | None = None,
 ) -> JobView:
     job_id = uuid.uuid4().hex
     job = JobView(id=job_id, state="queued", stage="等待处理", progress=0)
     JOBS[job_id] = job
     JOB_CONTROLS[job_id] = JobControl()
     JOB_TASKS[job_id] = asyncio.create_task(
-        _run_job(job_id, url, page_subtitles, page_subtitle_language)
+        _run_job(job_id, url, page_subtitles, page_subtitle_language, page_subtitle_cid, page_subtitle_provenance)
     )
-    log_event("job_created", job_id=job_id, platform=platform_from_url(url))
+    log_event(
+        "job_created", job_id=job_id, platform=platform_from_url(url),
+        request_id=(page_subtitle_provenance or {}).get("request_id", ""),
+        navigation_generation=(page_subtitle_provenance or {}).get("navigation_generation", 0),
+        subtitle_payload_hash=(page_subtitle_provenance or {}).get("subtitle_payload_hash", ""),
+    )
     return job
 
 

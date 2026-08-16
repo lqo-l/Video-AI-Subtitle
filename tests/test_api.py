@@ -42,11 +42,29 @@ def test_health_and_config_redaction(tmp_path, monkeypatch):
     assert saved.translation_model == "translation-updated"
 
 
+def test_whisper_model_selection_is_saved_independently(monkeypatch):
+    # Moon Add: selecting a model must not require submitting or overwrite the rest of the form.
+    original = ServiceConfig(
+        base_url="https://example.invalid/v1", api_key="keep-secret",
+        translation_model="keep-translation", whisper_model="small",
+    )
+    saved = {}
+    monkeypatch.setattr(main, "load_config", lambda: original.model_copy(deep=True))
+    monkeypatch.setattr(main, "save_config", lambda value: saved.update(config=value))
+
+    response = TestClient(app).put("/config/whisper-model", json={"whisper_model":"medium"})
+
+    assert response.status_code == 200
+    assert response.json()["whisper_model"] == "medium"
+    assert saved["config"].api_key == "keep-secret"
+    assert saved["config"].translation_model == "keep-translation"
+
+
 def test_start_job_runs_on_event_loop(monkeypatch):
     # Moon Add: regress the missing event loop failure from a synchronous endpoint.
     captured = {}
 
-    def fake_create_job(url, page_subtitles=None, page_subtitle_language=None):
+    def fake_create_job(url, page_subtitles=None, page_subtitle_language=None, page_subtitle_cid=None, page_subtitle_provenance=None):
         import asyncio
 
         captured["loop_was_running"] = asyncio.get_running_loop().is_running()
@@ -70,17 +88,46 @@ def test_start_job_runs_on_event_loop(monkeypatch):
 def test_start_job_accepts_bilibili(monkeypatch):
     # Moon Add
     observed = {}
-    def fake_create_job(url, page_subtitles=None, page_subtitle_language=None):
+    def fake_create_job(url, page_subtitles=None, page_subtitle_language=None, page_subtitle_cid=None, page_subtitle_provenance=None):
+        observed.update(subtitles=page_subtitles, language=page_subtitle_language, cid=page_subtitle_cid)
+        return JobView(id="bilibili-job", state="queued", stage="等待处理", progress=0, platform="bilibili")
+    monkeypatch.setattr(main, "create_job", fake_create_job)
+    response = TestClient(app).post(
+        "/jobs", json={"url": "https://www.bilibili.com/video/BV1GJ411x7h7", "page_subtitle_status":"found", "page_subtitle_language":"en", "page_subtitle_identity":{"bvid":"BV1GJ411x7h7","cid":987654,"duration":2}, "page_subtitles":[{"start":0,"end":2,"en":"Hello","source_language":"en"}]}
+    )
+    assert response.status_code == 200
+    assert response.json()["platform"] == "bilibili"
+    assert observed["language"] == "en"
+    assert observed["cid"] == 987654
+    assert observed["subtitles"][0].en == "Hello"
+
+
+def test_start_job_rejects_inconclusive_bilibili_lookup(monkeypatch):
+    # Moon Modified: inconclusive lookup must not be misreported as no subtitles.
+    observed = {}
+    def fake_create_job(url, page_subtitles=None, page_subtitle_language=None, page_subtitle_cid=None, page_subtitle_provenance=None):
         observed.update(subtitles=page_subtitles, language=page_subtitle_language)
         return JobView(id="bilibili-job", state="queued", stage="等待处理", progress=0, platform="bilibili")
     monkeypatch.setattr(main, "create_job", fake_create_job)
     response = TestClient(app).post(
         "/jobs", json={"url": "https://www.bilibili.com/video/BV1GJ411x7h7", "page_subtitle_language":"en", "page_subtitles":[{"start":0,"end":2,"en":"Hello","source_language":"en"}]}
     )
+    assert response.status_code == 409
+    assert not observed
+
+
+def test_start_job_allows_whisper_only_after_bilibili_confirms_no_tracks(monkeypatch):
+    # Moon Add
+    observed = {}
+    def fake_create_job(url, page_subtitles=None, page_subtitle_language=None, page_subtitle_cid=None, page_subtitle_provenance=None):
+        observed.update(subtitles=page_subtitles, language=page_subtitle_language)
+        return JobView(id="bilibili-job", state="queued", stage="等待处理", progress=0, platform="bilibili")
+    monkeypatch.setattr(main, "create_job", fake_create_job)
+    response = TestClient(app).post(
+        "/jobs", json={"url":"https://www.bilibili.com/video/BV1GJ411x7h7","page_subtitle_status":"no_tracks","page_subtitles":[]}
+    )
     assert response.status_code == 200
-    assert response.json()["platform"] == "bilibili"
-    assert observed["language"] == "en"
-    assert observed["subtitles"][0].en == "Hello"
+    assert observed["subtitles"] == []
 
 
 def test_clear_cache_preserves_config(tmp_path, monkeypatch):
@@ -183,6 +230,9 @@ def test_prompt_endpoints_create_open_and_restore_files(tmp_path, monkeypatch):
     summary.write_text("custom", encoding="utf-8")
     assert client.post("/prompts/summary/restore").status_code == 200
     assert "## 内容摘要" in summary.read_text(encoding="utf-8")
+    summary_text = summary.read_text(encoding="utf-8")
+    assert "可总结的信息有限" in summary_text
+    assert "不得补充外部知识" in summary_text
     assert client.post("/prompts/open").json() == {"ok": True}
     assert opened == [str(summary.parent)]
 

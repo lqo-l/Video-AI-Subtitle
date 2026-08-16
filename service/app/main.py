@@ -12,7 +12,8 @@ from fastapi.responses import PlainTextResponse
 from .config import CACHE_DIR, ensure_dirs, load_config, resolve_install_dir, save_config
 from .models import (
     CudaRuntimeStatus, DownloadCacheResult, JobView, ModelStatus, PublicConfig, ServiceConfig,
-    StoragePathResult, StoragePathSelection, StoragePathUpdate, VideoRequest,
+    PageSubtitleDiagnostic, StoragePathResult, StoragePathSelection, StoragePathUpdate, VideoRequest,
+    WhisperModelSelection,
 )
 from .pipeline import (
     JOBS, cancel_cuda_runtime_install, cancel_job, cancel_model_download, create_job,
@@ -28,7 +29,7 @@ from .prompts import ensure_prompt_file, prompt_path, restore_default_prompt
 from .diagnostics import LOG_DIR, log_event
 
 
-app = FastAPI(title="Video Bilingual Assistant", version="0.2.0")
+app = FastAPI(title="Video Bilingual Assistant", version="1.0.0")
 
 
 app.add_middleware(
@@ -105,18 +106,93 @@ def put_config(config: ServiceConfig):
     return PublicConfig(**config.model_dump(exclude={"api_key"}), api_key_configured=bool(config.api_key))
 
 
+@app.put("/config/whisper-model", response_model=PublicConfig)
+def put_whisper_model(selection: WhisperModelSelection):
+    # Moon Add: changing the model selector must survive extension reloads and
+    # updates without committing unrelated in-progress form edits.
+    config = load_config()
+    config.whisper_model = selection.whisper_model
+    save_config(config)
+    log_event("whisper_model_selected", whisper_model=config.whisper_model)
+    return PublicConfig(**config.model_dump(exclude={"api_key"}), api_key_configured=bool(config.api_key))
+
+
 @app.post("/jobs", response_model=JobView)
 async def start_job(request: VideoRequest):  # Moon Modified: keep task creation on the server event loop.
     url = str(request.url)
     hostname = (urlparse(url).hostname or "").lower()
     if hostname not in ("youtu.be", "youtube.com", "www.youtube.com", "bilibili.com", "www.bilibili.com"):
         raise HTTPException(400, "仅支持 YouTube 或 Bilibili 视频链接")
+    if hostname in ("bilibili.com", "www.bilibili.com"):
+        identity = request.page_subtitle_identity
+        provenance = request.page_subtitle_provenance
+        if request.page_subtitles:
+            if request.page_subtitle_status != "found" or not identity or identity.cid <= 0:
+                log_event("page_subtitles_rejected", reason="missing_authoritative_lookup")
+                raise HTTPException(409, "B站字幕身份不完整，请重新读取当前视频字幕")
+            cue_end = max(segment.end for segment in request.page_subtitles)
+            log_event(
+                "page_subtitles_received", bvid=identity.bvid, cid=identity.cid,
+                language=request.page_subtitle_language or "", segment_count=len(request.page_subtitles),
+                first_start=round(request.page_subtitles[0].start, 3), last_end=round(cue_end, 3),
+                duration=round(identity.duration, 3),
+                request_id=provenance.request_id if provenance else "",
+                navigation_generation=provenance.navigation_generation if provenance else 0,
+                requested_url_hash=provenance.requested_url_hash if provenance else "",
+                player_response_hash=provenance.player_response_hash if provenance else "",
+                track_id=provenance.track_id if provenance else "",
+                track_language=provenance.track_language if provenance else "",
+                track_kind=provenance.track_kind if provenance else "",
+                subtitle_url_hash=provenance.subtitle_url_hash if provenance else "",
+                subtitle_payload_hash=provenance.subtitle_payload_hash if provenance else "",
+                cue_timing_hash=provenance.cue_timing_hash if provenance else "",
+            )
+        elif request.page_subtitle_status != "no_tracks":
+            # Moon Modified: API failure, invalid tracks, and navigation races are
+            # not evidence that this video has no subtitles.
+            log_event("page_subtitle_lookup_inconclusive", status=request.page_subtitle_status or "missing")
+            raise HTTPException(409, "尚未确认当前 B站视频无字幕，未启动语音识别")
     job = create_job(
         str(request.url), request.page_subtitles, request.page_subtitle_language,
+        request.page_subtitle_identity.cid if request.page_subtitle_identity and request.page_subtitles else None,
+        request.page_subtitle_provenance.model_dump() if request.page_subtitle_provenance else None,
     )
     job_id = job.id if hasattr(job, "id") else job.get("id", "")
-    log_event("job_requested", job_id=job_id, hostname=hostname, has_page_subtitles=bool(request.page_subtitles))
+    provenance = request.page_subtitle_provenance
+    log_event(
+        "job_requested", job_id=job_id, hostname=hostname,
+        has_page_subtitles=bool(request.page_subtitles),
+        request_id=provenance.request_id if provenance else "",
+        navigation_generation=provenance.navigation_generation if provenance else 0,
+        subtitle_payload_hash=provenance.subtitle_payload_hash if provenance else "",
+    )
     return job
+
+
+@app.post("/diagnostics/page-subtitles")
+def page_subtitle_diagnostic(diagnostic: PageSubtitleDiagnostic):
+    # Moon Add: extension-side Bilibili lookup failures happen before a job exists.
+    identity = diagnostic.identity
+    provenance = diagnostic.provenance
+    log_event(
+        "page_subtitle_lookup", status=diagnostic.status,
+        bvid=identity.bvid if identity else "", cid=identity.cid if identity else 0,
+        duration=round(identity.duration, 3) if identity else 0,
+        track_count=diagnostic.track_count, ignored_ai_track_count=diagnostic.ignored_ai_track_count,
+        rejected_tracks=diagnostic.rejected_tracks,
+        error=diagnostic.error,
+        request_id=provenance.request_id if provenance else "",
+        navigation_generation=provenance.navigation_generation if provenance else 0,
+        requested_url_hash=provenance.requested_url_hash if provenance else "",
+        player_response_hash=provenance.player_response_hash if provenance else "",
+        track_id=provenance.track_id if provenance else "",
+        track_language=provenance.track_language if provenance else "",
+        track_kind=provenance.track_kind if provenance else "",
+        subtitle_url_hash=provenance.subtitle_url_hash if provenance else "",
+        subtitle_payload_hash=provenance.subtitle_payload_hash if provenance else "",
+        cue_timing_hash=provenance.cue_timing_hash if provenance else "",
+    )
+    return {"ok": True}
 
 
 @app.get("/jobs/{job_id}", response_model=JobView)

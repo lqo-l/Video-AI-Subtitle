@@ -64,7 +64,7 @@ Open a supported video, click the extension, then select **Process Current Video
 | Priority | Source | Notes |
 |---|---|---|
 | 1 | Platform captions | Uses the video’s available English, Japanese, or Chinese caption tracks. |
-| 2 | Bilibili caption API | Resolves the exact video part from the current URL before requesting Bilibili’s caption track. Some AI/CC tracks require an active Bilibili login; Chrome supplies that session directly without the extension reading or storing cookies. |
+| 2 | Bilibili caption API | Resolves the exact video part from the current URL, then accepts only verifiable regular caption tracks. Because Bilibili's AI-caption API can return content that does not belong to the current video, `v1.0.0` ignores tracks marked as AI. |
 | 3 | Local Whisper | Downloads the current video audio and transcribes it locally. Choose CPU, CUDA, and model size in Settings. |
 
 ## Settings at a glance
@@ -100,7 +100,7 @@ CUDA Toolkit 11.x or cuDNN 8.x is not compatible. A system CUDA 12.x installatio
 |---|---|
 | Stuck at “Starting local service” | Re-run `install-native-host.ps1` with the current extension ID; confirm the project folder was not moved. Logs: `%LOCALAPPDATA%\YouTubeBilingualAssistant\native-service.log`. |
 | `401` / `403` from the model service | Confirm the Base URL includes `/v1`, and verify the configured API key and model name. |
-| Bilibili starts transcription instead of using captions | The current video may not expose a caption track, or the track may require a Bilibili login. Whisper is the intended fallback. |
+| Bilibili starts transcription instead of using captions | The video may not expose a verifiable regular caption track. Bilibili AI captions are currently ignored, so Whisper is the intended fallback. |
 | First transcription is slow | Whisper may be downloading the selected model, or CPU mode is active. Model download progress is shown in Settings. |
 | GPU setup does not detect an existing CUDA Toolkit | The plugin needs the exact cuBLAS 12 and cuDNN 9 runtime DLLs, not only a CUDA driver or Toolkit 11.x. It currently validates the plugin-selected runtime folder. |
 
