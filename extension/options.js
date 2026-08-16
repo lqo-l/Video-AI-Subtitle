@@ -102,7 +102,6 @@ ensureService().then(()=>request("/prompts")).then(data=>{
 
 // Moon Add: show the exact project copy managed by the native service/updater.
 ensureService().then(()=>request("/installation")).then(data=>{
-  project_root.value=data.project_root||"";
   extension_dir.value=data.extension_dir||"";
 }).catch(error=>message.textContent=`无法读取插件目录：${error.message}`);
 

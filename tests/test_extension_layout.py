@@ -326,8 +326,8 @@ def test_settings_show_the_registered_update_and_extension_directories():
     root = Path(__file__).parents[1] / "extension"
     html = (root / "options.html").read_text(encoding="utf-8")
     script = (root / "options.js").read_text(encoding="utf-8")
-    assert 'id="project_root" readonly' in html
     assert 'id="extension_dir" readonly' in html
+    assert "插件加载目录" in html
     assert 'id="open_installation"' in html
     assert 'request("/installation")' in script
     assert 'request("/installation/open",{method:"POST"})' in script
