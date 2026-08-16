@@ -98,7 +98,8 @@ try {
     if ($Digest -notmatch "^sha256:([0-9a-fA-F]{64})$") { throw "更新包缺少有效的 SHA-256 校验信息" }
 
     New-Item -ItemType Directory -Force -Path $RunRoot, $StagePath, $BackupPath | Out-Null
-    Write-UpdateLog "正在下载 v$Version"
+    $currentVersion = (Get-Content -Raw (Join-Path $ProjectRoot "extension\manifest.json") | ConvertFrom-Json).version
+    Write-UpdateLog "更新目标：$ProjectRoot（当前版本：$currentVersion，目标版本：$Version）"
     Write-UpdateProgress "正在连接更新服务器" 0 0 0
     Download-UpdateArchive -SourceUrl $Url -Destination $ArchivePath
     Write-UpdateProgress "正在校验更新包" 1 1 0
@@ -126,6 +127,10 @@ try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target), (Split-Path -Parent $backup) | Out-Null
         if (Test-Path -LiteralPath $target) { Move-Item -LiteralPath $target -Destination $backup -Force }
         Move-Item -LiteralPath (Join-Path $StagePath $relative) -Destination $target -Force
+    }
+    $installedVersion = (Get-Content -Raw (Join-Path $ProjectRoot "extension\manifest.json") | ConvertFrom-Json).version
+    if ([string]$installedVersion -ne [string]$Version) {
+        throw "更新目录版本校验失败：预期 $Version，实际 $installedVersion，目录 $ProjectRoot"
     }
     Remove-Item -LiteralPath $BackupPath -Recurse -Force
     # The current native host is still running and cannot be overwritten on Windows.

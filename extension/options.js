@@ -100,6 +100,12 @@ ensureService().then(()=>request("/prompts")).then(data=>{
   prompt_dir.value=data.summary||"";
 }).catch(error=>message.textContent=`无法读取提示词位置：${error.message}`);
 
+// Moon Add: show the exact project copy managed by the native service/updater.
+ensureService().then(()=>request("/installation")).then(data=>{
+  project_root.value=data.project_root||"";
+  extension_dir.value=data.extension_dir||"";
+}).catch(error=>message.textContent=`无法读取插件目录：${error.message}`);
+
 api_key.onfocus=()=>{if(api_key.value===KEY_PLACEHOLDER)api_key.value="";};
 api_key.onblur=()=>{if(!api_key.value&&api_key.dataset.configured==="true")api_key.value=KEY_PLACEHOLDER;};
 panel_opacity.oninput=()=>opacity_value.value=`${panel_opacity.value}%`;
@@ -190,6 +196,7 @@ reset_model_dir.onclick=()=>resetStorageDirectory("model");
 reset_cuda_dir.onclick=()=>resetStorageDirectory("cuda");
 open_cuda.onclick=async()=>{try{await request("/cuda/open",{method:"POST"});}catch(error){cuda_detail.textContent=`无法打开运行库文件夹：${error.message}`;}};
 open_prompts.onclick=async()=>{try{await request("/prompts/open",{method:"POST"});}catch(error){message.textContent=`无法打开提示词文件夹：${error.message}`;}};
+open_installation.onclick=async()=>{try{await request("/installation/open",{method:"POST"});}catch(error){message.textContent=`无法打开插件目录：${error.message}`;}};
 // Moon Add: persistent operation logs are the first troubleshooting destination.
 open_diagnostics.onclick=async()=>{try{await request("/diagnostics/open",{method:"POST"});}catch(error){message.textContent=`无法打开诊断日志文件夹：${error.message}`;}};
 async function restorePrompt(kind){

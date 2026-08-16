@@ -98,7 +98,7 @@ CUDA Toolkit 11.x 或 cuDNN 8.x 不兼容。系统已安装 CUDA Toolkit 12.x �
 
 | 问题 | 处理方式 |
 |---|---|
-| 一直显示「正在启动本机服务」 | 用当前扩展 ID 重新执行 `install-native-host.ps1`，并确认项目目录没有移动。日志：`%LOCALAPPDATA%\YouTubeBilingualAssistant\native-service.log`。 |
+| 一直显示「正在启动本机服务」 | 用当前扩展 ID 重新执行 `install-native-host.ps1`，并确认项目目录没有移动。日志：`%LOCALAPPDATA%\YouTubeBilingualAssistant\logs\native-service.log`。 |
 | 模型服务返回 `401` / `403` | 确认 Base URL 含 `/v1`，并检查 API Key 与模型名称。 |
 | B 站未读取字幕而开始识别 | 当前视频可能没有可验证的普通字幕轨；B 站 AI 字幕当前会被忽略，Whisper 会作为正常回退。 |
 | 首次识别较慢 | 可能正在下载所选 Whisper 模型，或当前为 CPU 模式；下载进度会显示在设置中。 |

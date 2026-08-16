@@ -42,6 +42,23 @@ def test_health_and_config_redaction(tmp_path, monkeypatch):
     assert saved.translation_model == "translation-updated"
 
 
+def test_installation_endpoint_reports_active_project_copy(tmp_path, monkeypatch):
+    # Moon Add: update diagnostics identify the exact unpacked extension directory.
+    extension = tmp_path / "extension"
+    extension.mkdir()
+    (extension / "manifest.json").write_text('{"version":"1.2.3"}', encoding="utf-8")
+    monkeypatch.setattr(main, "PROJECT_ROOT", tmp_path)
+
+    response = TestClient(app).get("/installation")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "project_root": str(tmp_path),
+        "extension_dir": str(extension),
+        "manifest_version": "1.2.3",
+    }
+
+
 def test_whisper_model_selection_is_saved_independently(monkeypatch):
     # Moon Add: selecting a model must not require submitting or overwrite the rest of the form.
     original = ServiceConfig(

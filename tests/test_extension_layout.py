@@ -321,6 +321,18 @@ def test_settings_expose_privacy_safe_diagnostic_log_folder():
     assert 'request("/diagnostics/open",{method:"POST"})' in script
 
 
+def test_settings_show_the_registered_update_and_extension_directories():
+    # Moon Add: duplicate unpacked copies must be diagnosable without Chrome internals.
+    root = Path(__file__).parents[1] / "extension"
+    html = (root / "options.html").read_text(encoding="utf-8")
+    script = (root / "options.js").read_text(encoding="utf-8")
+    assert 'id="project_root" readonly' in html
+    assert 'id="extension_dir" readonly' in html
+    assert 'id="open_installation"' in html
+    assert 'request("/installation")' in script
+    assert 'request("/installation/open",{method:"POST"})' in script
+
+
 def test_secondary_storage_actions_are_collapsed_and_cache_scope_is_explicit():
     # Moon Modified: primary actions stay visible while low-frequency settings use fixed disclosure.
     root = Path(__file__).parents[1] / "extension"

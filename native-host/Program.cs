@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 
@@ -137,7 +138,10 @@ internal static class Program
         string updater = Path.Combine(projectRoot, "scripts", "update.ps1");
         if (!File.Exists(updater)) throw new FileNotFoundException("当前版本不支持一键更新，请手动安装此版本后重试", updater);
 
-        LogText("extension_update_started version=" + version);
+        string extensionDirectory = Path.Combine(projectRoot, "extension");
+        string manifestPath = Path.Combine(extensionDirectory, "manifest.json");
+        string beforeVersion = ReadManifestVersion(manifestPath);
+        LogText("extension_update_started version=" + version + " project_root=" + projectRoot + " extension_dir=" + extensionDirectory + " current_version=" + beforeVersion);
         ProcessStartInfo startInfo = new ProcessStartInfo
         {
             FileName = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
@@ -159,7 +163,24 @@ internal static class Program
             updaterProcess.WaitForExit();
             if (updaterProcess.ExitCode != 0) throw new InvalidOperationException("更新失败，请在诊断日志中查看详细原因");
         }
-        LogText("extension_update_completed version=" + version);
+        string installedVersion = ReadManifestVersion(manifestPath);
+        if (!string.Equals(installedVersion, version, StringComparison.OrdinalIgnoreCase))
+        {
+            LogText("extension_update_verification_failed expected_version=" + version + " actual_version=" + installedVersion + " extension_dir=" + extensionDirectory);
+            throw new InvalidOperationException("文件替换后版本校验失败；更新目录：" + extensionDirectory);
+        }
+        LogText("extension_update_completed version=" + installedVersion + " extension_dir=" + extensionDirectory);
+    }
+
+    private static string ReadManifestVersion(string manifestPath)
+    {
+        if (!File.Exists(manifestPath)) return "missing";
+        try
+        {
+            Match match = Regex.Match(File.ReadAllText(manifestPath), "\\\"version\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+            return match.Success ? match.Groups[1].Value : "unknown";
+        }
+        catch (Exception error) { return "error:" + error.GetType().Name; }
     }
 
     private static string Quote(string value)

@@ -30,6 +30,7 @@ from .diagnostics import LOG_DIR, log_event
 
 
 app = FastAPI(title="Video Bilingual Assistant", version="1.0.0")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Moon Add: active service/update installation root.
 
 
 app.add_middleware(
@@ -47,6 +48,23 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"ok": True, "version": app.version}
+
+
+@app.get("/installation")
+def installation():
+    # Moon Add: identify the exact unpacked copy managed by the native updater.
+    import json
+    extension_dir = PROJECT_ROOT / "extension"
+    try:
+        manifest = json.loads((extension_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest_version = str(manifest.get("version", ""))
+    except (OSError, ValueError, TypeError):
+        manifest_version = ""
+    return {
+        "project_root": str(PROJECT_ROOT),
+        "extension_dir": str(extension_dir),
+        "manifest_version": manifest_version,
+    }
 
 
 @app.get("/prompts")
@@ -301,6 +319,18 @@ def diagnostics_open():
         raise HTTPException(500, f"无法打开诊断日志文件夹：{exc}") from exc
     log_event("diagnostics_folder_opened")
     return {"ok": True, "path": str(LOG_DIR)}
+
+
+@app.post("/installation/open")
+def installation_open():
+    # Moon Add: use Explorer directly, matching other trusted folder actions.
+    extension_dir = PROJECT_ROOT / "extension"
+    try:
+        os.startfile(str(extension_dir))
+    except OSError as exc:
+        raise HTTPException(500, f"无法打开插件目录：{exc}") from exc
+    log_event("installation_folder_opened", extension_dir=str(extension_dir))
+    return {"ok": True, "path": str(extension_dir)}
 
 
 # Moon Begin: native folder selection and confirmed storage migration.

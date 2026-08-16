@@ -98,7 +98,7 @@ CUDA Toolkit 11.x or cuDNN 8.x is not compatible. A system CUDA 12.x installatio
 
 | Problem | What to check |
 |---|---|
-| Stuck at “Starting local service” | Re-run `install-native-host.ps1` with the current extension ID; confirm the project folder was not moved. Logs: `%LOCALAPPDATA%\YouTubeBilingualAssistant\native-service.log`. |
+| Stuck at “Starting local service” | Re-run `install-native-host.ps1` with the current extension ID; confirm the project folder was not moved. Logs: `%LOCALAPPDATA%\YouTubeBilingualAssistant\logs\native-service.log`. |
 | `401` / `403` from the model service | Confirm the Base URL includes `/v1`, and verify the configured API key and model name. |
 | Bilibili starts transcription instead of using captions | The video may not expose a verifiable regular caption track. Bilibili AI captions are currently ignored, so Whisper is the intended fallback. |
 | First transcription is slow | Whisper may be downloading the selected model, or CPU mode is active. Model download progress is shown in Settings. |
