@@ -240,6 +240,9 @@
     const edgeHandle=root.querySelector("[data-expand]");
     bindLauncherDrag(edgeHandle,()=>setPanelCollapsed(false));
     bindDismissContextMenu(edgeHandle);
+    // Moon Add: Bilibili fullscreen binds wheel bubbling to volume changes.
+    // Preserve the browser's default scroll so the transcript itself still scrolls.
+    root.addEventListener("wheel", event => event.stopPropagation(), {capture:true,passive:true});
     bindSubtitleControls(root);
     root.querySelector("[data-export]").onclick = () => safeSendMessage({type:"download-markdown", content:buildMarkdown(), filename:safeName(result.title)});
     document.body.appendChild(root);
@@ -745,7 +748,13 @@
     root.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("active", x.dataset.tab === tab));
     const body = root.querySelector(".ytba-body");
     if (tab === "summary") {
-      if (job?.state !== "completed" && renderedSummary) {
+      const hasSummary=Boolean(renderedSummary || result.summary || result.key_points?.length);
+      if (!hasSummary && job?.summary_state !== "failed") {
+        // Moon Modified: recognition can stream subtitles before there is enough
+        // source text to start summarization; never present empty headings as done.
+        const waitingForTranscript=job?.state === "running" && job.stage.includes("识别语音");
+        body.innerHTML = `<div class="ytba-summary-wait"><span class="ytba-live-dot"></span>${waitingForTranscript?"正在识别原文，完成后开始内容提炼":"等待原文内容后开始提炼"}</div>`;
+      } else if (job?.state !== "completed" && renderedSummary) {
         const streaming=job.summary_state === "running";
         body.innerHTML = `<div class="ytba-stream-heading">${streaming?'<span class="ytba-live-dot"></span> AI 正在提炼原文内容':'✓ 摘要已生成，字幕仍在翻译'}</div><div class="ytba-stream-text">${renderSummaryMarkdown(renderedSummary)}${streaming?'<span class="ytba-stream-caret"></span>':''}</div>`;
       } else if (job?.summary_state === "failed" && !result.summary) {

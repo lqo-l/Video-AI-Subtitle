@@ -104,6 +104,23 @@ def test_panel_shows_compact_subtitle_source_for_embedded_and_recognized_caption
     assert "source:job.source" in script
 
 
+def test_summary_waits_for_recognized_source_before_rendering_empty_completed_sections():
+    # Moon Modified: an ASR preview is not a completed empty summary.
+    root = Path(__file__).parents[1] / "extension"
+    script = (root / "content.js").read_text(encoding="utf-8")
+    css = (root / "content.css").read_text(encoding="utf-8")
+    assert 'const hasSummary=Boolean(renderedSummary || result.summary || result.key_points?.length);' in script
+    assert 'job.stage.includes("识别语音")' in script
+    assert "正在识别原文，完成后开始内容提炼" in script
+    assert "ytba-summary-wait" in css
+
+
+def test_panel_wheel_does_not_bubble_to_fullscreen_player_volume_shortcuts():
+    # Moon Add: preserve native panel scrolling while isolating Bilibili's wheel shortcut.
+    script = (Path(__file__).parents[1] / "extension" / "content.js").read_text(encoding="utf-8")
+    assert 'root.addEventListener("wheel", event => event.stopPropagation(), {capture:true,passive:true});' in script
+
+
 def test_popup_checks_latest_github_release_and_uses_native_host_for_safe_update():
     # Moon Modified: Chrome cannot write its unpacked directory, so the trusted native host does it.
     root = Path(__file__).parents[1] / "extension"
