@@ -42,7 +42,7 @@ body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, bod
 .ytba-status { padding: 12px 14px; border-bottom: 1px solid #333842; }
 .ytba-status-row { display: flex; align-items: center; gap: 8px; }
 .ytba-status-row [data-status] { min-width:0;flex:1; }
-.ytba-play-completed { flex:0 0 auto;padding:5px 11px;color:#d9ffec;background:rgba(61,202,139,.14);border:1px solid rgba(89,224,163,.48);border-radius:7px;font-size:12px;cursor:pointer;transition:background .16s ease,border-color .16s ease,transform .12s ease; }
+.ytba-play-completed { flex:0 0 auto;padding:4px 10px;color:#10301f;background:#5be1a1;border:1px solid #89f0be;border-radius:6px;font-size:12px;font-weight:750;cursor:pointer;transition:background .16s ease,border-color .16s ease,transform .12s ease; }
 .ytba-play-completed:hover { background:rgba(61,202,139,.25);border-color:#65dfa8; }
 .ytba-play-completed:active { transform:translateY(1px); }
 .ytba-play-completed[hidden],.ytba-status[hidden] { display:none !important; }
@@ -69,8 +69,9 @@ body.ytba-panel-resizing #ytba-root, body.ytba-panel-resizing #page-manager, bod
 .ytba-task-actions button { padding:4px 11px;color:#c9d3e3;background:transparent;border:1px solid #465063;border-radius:6px;font-size:12px;cursor:pointer; }
 .ytba-task-actions button:hover,.ytba-task-actions button.active { color:#fff;background:#33415a;border-color:#638be0; }
 .ytba-task-actions button[hidden] { display:none; }
-.ytba-completed .ytba-status { background: linear-gradient(135deg, #1a3a2e, #13271c); }
-.ytba-completed .ytba-progress > div { background: #34d399; }
+.ytba-completed .ytba-status { padding:8px 14px;background:linear-gradient(135deg,#1a3a2e,#13271c); }
+.ytba-completed .ytba-status-row { min-width:0; }
+.ytba-completed .ytba-progress,.ytba-completed .ytba-task-actions,.ytba-completed .ytba-local-progress { display:none !important; }
 .ytba-completed .ytba-pulse { display: none !important; }
 .ytba-control { color: #e8ebf0; background: #343945; border: 1px solid #4a5160; border-radius: 5px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
 .ytba-control.active { background: #2867d6; border-color: #4b8cff; }

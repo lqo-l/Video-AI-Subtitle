@@ -1033,7 +1033,7 @@ async def process_job(
     job.preview_segments = segments
     job.translated_segments = len(segments)
     job.total_segments = len(segments)
-    final_stage = "字幕完成，摘要生成失败" if job.summary_state == "failed" else "处理完成，请手动播放"
+    final_stage = "字幕完成，摘要生成失败" if job.summary_state == "failed" else "处理完成"
     job.state, job.stage, job.progress = "completed", final_stage, 100
 
 async def _run_job(

@@ -299,17 +299,46 @@ def test_recognized_segments_stream_into_transcript_before_translation():
     assert 'job.stage.includes("识别语音") || job.stage.startsWith("翻译中文字幕")' in script
 
 
-def test_completed_status_offers_play_and_stays_dismissed_after_action():
-    # Moon Add: completion provides the next action and does not reappear after it is used.
+def test_completed_status_is_compact_and_stays_dismissed_after_acknowledgement():
+    # Moon Modified: playback already continues, so completion only needs compact acknowledgement.
     root = Path(__file__).parents[1] / "extension"
     script = (root / "content.js").read_text(encoding="utf-8")
     css = (root / "content.css").read_text(encoding="utf-8")
-    assert 'data-play-completed hidden>播放视频</button>' in script
+    assert 'data-play-completed hidden title="收起完成提示"' in script
+    assert ">确定</button>" in script
     assert "completionNoticeDismissed=true" in script
     assert "status.hidden=true" in script
-    assert "player.play().catch(()=>{})" in script
+    assert "player.play().catch(()=>{})" not in script
     assert 'playButton.hidden=completionNoticeDismissed' in script
     assert ".ytba-play-completed[hidden],.ytba-status[hidden]" in css
+    assert ".ytba-completed .ytba-progress,.ytba-completed .ytba-task-actions" in css
+
+
+def test_transcript_follow_uses_smooth_half_page_pre_scroll_instead_of_per_cue_snap():
+    # Moon Add: retain several future cues in view near the bottom of the transcript.
+    script = (Path(__file__).parents[1] / "extension" / "content.js").read_text(encoding="utf-8")
+    assert 'const following=[...body.querySelectorAll(".ytba-segment")].slice(index+1);' in script
+    assert "const activeIsSecondLastVisible=completeFollowing<=1;" in script
+    assert "active.offsetTop-body.clientHeight*.38" in script
+    assert 'body.scrollTo({top:nextTop,behavior:"smooth"})' in script
+    assert "scrollIntoView" not in script
+
+
+def test_transcript_seek_immediately_repositions_current_cue_before_resuming_pre_scroll():
+    # Moon Add: a timeline seek is intentional navigation, not normal playback following.
+    script = (Path(__file__).parents[1] / "extension" / "content.js").read_text(encoding="utf-8")
+    assert "lastSubtitleSyncTime<0||Math.abs(now-lastSubtitleSyncTime)>3" in script
+    assert "active.offsetTop-body.clientHeight*.32" in script
+    assert "requestAnimationFrame(syncSubtitle);" in script
+    assert "if (!result) return;" in script
+    assert "if (overlay) {" in script
+
+
+def test_completed_job_returns_from_streamed_summary_to_transcript_tab():
+    # Moon Add: post-processing defaults to the timed subtitles used for watching.
+    script = (Path(__file__).parents[1] / "extension" / "content.js").read_text(encoding="utf-8")
+    completed = script.split('if (job.state === "completed") {', 1)[1].split('} else if (["failed","cancelled"].includes(job.state))', 1)[0]
+    assert 'activeTab = "transcript";' in completed
 
 
 def test_advanced_settings_offer_prompt_files_with_safe_format_warning():
