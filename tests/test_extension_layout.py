@@ -20,6 +20,29 @@ def test_bilibili_uses_draggable_launcher_instead_of_prompt():
     assert "bindLauncherDrag" in script
 
 
+def test_popup_recovers_content_script_after_bilibili_spa_navigation():
+    # Moon Add: opening a video from Watch Later must not require a manual refresh.
+    root = Path(__file__).parents[1] / "extension"
+    popup = (root / "popup.js").read_text(encoding="utf-8")
+    background = (root / "background.js").read_text(encoding="utf-8")
+    assert 'type:"start-current-video",tab' in popup
+    assert "async function startCurrentVideo(tab)" in background
+    assert 'detail.includes("Receiving end does not exist")' in background
+    assert 'chrome.scripting.insertCSS({target:{tabId:tab.id},files:["content.css"]})' in background
+    assert 'chrome.scripting.executeScript({target:{tabId:tab.id},files:["content.js"]})' in background
+
+
+def test_watch_later_player_route_is_supported_as_a_bilibili_video_page():
+    # Moon Add: Bilibili Watch Later carries the current BVID in its query string.
+    root = Path(__file__).parents[1] / "extension"
+    manifest = (root / "manifest.json").read_text(encoding="utf-8")
+    content = (root / "content.js").read_text(encoding="utf-8")
+    background = (root / "background.js").read_text(encoding="utf-8")
+    assert '"https://www.bilibili.com/list/watchlater/*"' in manifest
+    assert 'location.pathname.startsWith("/list/watchlater/")' in content
+    assert 'url.pathname.startsWith("/list/watchlater/") ? url.searchParams.get("bvid")' in background
+
+
 def test_idle_bilibili_launcher_hides_during_fullscreen_playback():
     # Moon Add: a pre-processing launcher is not useful while video controls own fullscreen.
     root = Path(__file__).parents[1] / "extension"
@@ -93,6 +116,16 @@ def test_chinese_source_replaces_redundant_language_picker_with_static_label():
     assert "languageSelect.hidden=chineseSource" in script
     assert "staticLanguage.hidden=!chineseSource" in script
     assert "if(previousSourceLanguage!==result.source_language)refreshSubtitleControls();" in script
+
+
+def test_korean_source_is_supported_in_browser_caption_selection_and_labels():
+    # Moon Add: Korean is a first-class source language, not an unknown fallback.
+    root = Path(__file__).parents[1] / "extension"
+    background = (root / "background.js").read_text(encoding="utf-8")
+    content = (root / "content.js").read_text(encoding="utf-8")
+    assert 'if (/^(ko|kr|ai-ko|ai-kr)/.test(language)) return "ko";' in background
+    assert '["en", "ja", "ko", "zh"]' in background
+    assert 'ko:"韩文"' in content
 
 
 def test_panel_shows_compact_subtitle_source_for_embedded_and_recognized_captions():

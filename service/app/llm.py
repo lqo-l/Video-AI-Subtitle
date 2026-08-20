@@ -146,7 +146,7 @@ class LlmClient:
         batch_size = 20  # Moon Modified: expose the first playable translated section sooner.
         context_size = 5  # Moon Add: retain terminology and references across batch boundaries.
         source_language = next((item.source_language for item in segments if item.en), "en")
-        language_name = {"en": "英文", "ja": "日文", "zh": "中文"}.get(source_language, "原文")
+        language_name = {"en": "英文", "ja": "日文", "ko": "韩文", "zh": "中文"}.get(source_language, "原文")
         for offset in range(0, len(segments), batch_size):
             if control:
                 await control()

@@ -46,7 +46,7 @@ CUDA_PACKAGES = (
     ("nvidia-cuda-nvrtc-cu12", "CUDA NVRTC 12"),
 )  # Moon Add
 CACHE_SCHEMA_VERSION = 8  # Moon Modified: invalidate caches that may contain unverified Bilibili AI tracks.
-SUPPORTED_LANGUAGES = ("en", "ja", "zh")
+SUPPORTED_LANGUAGES = ("en", "ja", "ko", "zh")  # Moon Modified: Korean source is translated to Chinese.
 WHISPER_MODEL_ENDPOINTS = (
     ("HF 镜像", "https://hf-mirror.com"),
     ("Hugging Face 官方源", "https://huggingface.co"),
@@ -70,8 +70,35 @@ def _model_install_root(install_dir: str = "") -> Path:
     )
 
 
-def _uses_default_model_root(install_dir: str = "") -> bool:
-    return _model_install_root(install_dir) == (CACHE_DIR.parent / "models").resolve()
+# Moon Begin: model discovery must be identical for the task runner and settings UI.
+_WHISPER_MODEL_REQUIRED_FILES = ("config.json", "model.bin", "tokenizer.json")
+
+
+def _model_directory_is_complete(path: Path) -> bool:
+    """Return whether a faster-whisper directory can be loaded without downloading."""
+    if not path.is_dir() or not all((path / name).is_file() for name in _WHISPER_MODEL_REQUIRED_FILES):
+        return False
+    model_file = path / "model.bin"
+    if model_file.stat().st_size <= 0:
+        return False
+    marker = path / ".ytba-model-size"
+    if not marker.is_file():
+        # Imported or older plugin model directories did not have the marker.
+        return True
+    try:
+        return model_file.stat().st_size == int(marker.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return False
+
+
+def _standard_hf_model_candidates(model: str) -> list[Path]:
+    """Find snapshots stored by a normal Hugging Face / faster-whisper install."""
+    from huggingface_hub.constants import HF_HUB_CACHE
+
+    repo_id = model if "/" in model else f"Systran/faster-whisper-{model}"
+    snapshots = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}" / "snapshots"
+    return list(snapshots.glob("*")) if snapshots.exists() else []
+# Moon End
 
 
 def _configure_private_cuda_runtime() -> list[str]:
@@ -144,7 +171,7 @@ def video_id_from_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.hostname and parsed.hostname.endswith("bilibili.com"):
         match = re.search(r"/(BV[0-9A-Za-z]+|av\d+|(?:ep|ss)\d+)", parsed.path, re.IGNORECASE)
-        return match.group(1) if match else ""
+        return match.group(1) if match else parse_qs(parsed.query).get("bvid", [""])[0]
     if parsed.hostname == "youtu.be":
         return parsed.path.strip("/")
     return parse_qs(parsed.query).get("v", [""])[0]
@@ -268,6 +295,8 @@ def _caption_language(key: str) -> str | None:
         return "en"
     if normalized.startswith(("ja", "jp", "ai-ja", "ai-jp")):
         return "ja"
+    if normalized.startswith(("ko", "kr", "ai-ko", "ai-kr")):
+        return "ko"
     if normalized.startswith(("zh", "cn", "ai-zh", "ai-cn")):
         return "zh"
     return None
@@ -371,7 +400,6 @@ def _prepare_whisper_model(
     """Download selected model once and report byte-based first-run progress."""
     # Moon Begin
     from huggingface_hub import HfApi, snapshot_download
-    from huggingface_hub.constants import HF_HUB_CACHE
     from tqdm.auto import tqdm
 
     _raise_if_cancelled(cancel_event)
@@ -380,8 +408,10 @@ def _prepare_whisper_model(
     # Moon Add: an explicitly configured local model always wins and never contacts HF.
     configured_model = Path(model_path).expanduser() if model_path.strip() else None
     if configured_model:
-        missing = [name for name in ("config.json", "model.bin", "tokenizer.json") if not (configured_model / name).is_file()]
-        if missing:
+        missing = [name for name in _WHISPER_MODEL_REQUIRED_FILES if not (configured_model / name).is_file()]
+        if missing or not _model_directory_is_complete(configured_model):
+            if not missing:
+                missing = ["model.bin（文件不完整）"]
             raise RuntimeError(f"自定义模型路径不可用，缺少：{', '.join(missing)}")
         size = (configured_model / "model.bin").stat().st_size
         if progress_callback:
@@ -391,32 +421,27 @@ def _prepare_whisper_model(
     # Moon Add: respect the optional source preference while retaining fallback in auto mode.
     endpoint_map = {"mirror": WHISPER_MODEL_ENDPOINTS[0], "official": WHISPER_MODEL_ENDPOINTS[1]}
     model_endpoints = WHISPER_MODEL_ENDPOINTS if download_source == "auto" else (endpoint_map.get(download_source, WHISPER_MODEL_ENDPOINTS[0]),)
-    # A complete standard cache must never perform a network request or wait
-    # for a stale Hugging Face lock left by an interrupted download.
-    if _uses_default_model_root(install_dir):
-        standard_repo = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}"
-        standard_snapshots = standard_repo / "snapshots"
-        for cached_path in standard_snapshots.glob("*") if standard_snapshots.exists() else []:
-            if all((cached_path / name).exists() for name in ("config.json", "model.bin", "tokenizer.json")):
-                if progress_callback:
-                    size = (cached_path / "model.bin").stat().st_size
-                    progress_callback(100, size, size, 0, "本机缓存")
-                return str(cached_path)
-
     install_root = _model_install_root(install_dir)
     legacy_model_dir = install_root / model_name.replace("/", "--")
-    expected = ("config.json", "model.bin", "tokenizer.json")
-    completion_marker = legacy_model_dir / ".ytba-model-size"
-    model_file = legacy_model_dir / "model.bin"
-    marked_size = int(completion_marker.read_text().strip()) if completion_marker.exists() else 0
-    if (
-        all((legacy_model_dir / name).exists() for name in expected)
-        and marked_size > 0
-        and model_file.stat().st_size == marked_size
-    ):
+    # Moon Modified: imported models and models from an earlier plugin release
+    # are complete even when they predate the optional size marker.
+    if _model_directory_is_complete(legacy_model_dir):
         if progress_callback:
-            progress_callback(100, marked_size, marked_size, 0, "本机缓存")
+            size = (legacy_model_dir / "model.bin").stat().st_size
+            progress_callback(100, size, size, 0, "本机缓存")
         return str(legacy_model_dir)
+
+    # Moon Modified: a custom installation target must not hide a same-model
+    # standard HF cache. This avoids a needless re-download after users change
+    # the plugin's installation path.
+    for cached_path in _standard_hf_model_candidates(model_name):
+        if _model_directory_is_complete(cached_path):
+            if progress_callback:
+                size = (cached_path / "model.bin").stat().st_size
+                progress_callback(100, size, size, 0, "本机缓存")
+            return str(cached_path)
+
+    completion_marker = legacy_model_dir / ".ytba-model-size"
 
     # Moon Begin: releases 0.11.2/0.11.3 may leave a valid partial model.bin in
     # Hugging Face's local-dir cache. Resume it with plain HTTP Range requests;
@@ -645,6 +670,15 @@ def _transcribe(
     device = device_setting
     if device == "auto":
         device = "cuda" if ctranslate2.get_cuda_device_count() else "cpu"
+    # Moon Add: device enumeration only confirms that the NVIDIA driver is
+    # visible. The actual CUDA libraries are initialized lazily below.
+    log_event(
+        "whisper_device_selected",
+        requested_device=device_setting,
+        selected_device=device,
+        cuda_device_count=ctranslate2.get_cuda_device_count(),
+        model=model_name,
+    )
     def run(active_device: str) -> tuple[list[Segment], str]:
         """Consume the lazy segment iterator while the device fallback is active."""
         # Moon Begin: CTranslate2 loads cuBLAS on the first generator iteration,
@@ -663,7 +697,7 @@ def _transcribe(
         language = info.language if info.language in SUPPORTED_LANGUAGES else ""
         if not language:
             raise RuntimeError(
-                f"仅支持英文、日文或中文语音，检测到：{info.language or '未知'}"
+                f"仅支持英文、日文、韩文或中文语音，检测到：{info.language or '未知'}"
             )
         total_duration = float(expected_duration or getattr(info, "duration", 0) or 0)
         if transcription_progress:
@@ -688,6 +722,13 @@ def _transcribe(
     try:
         return run(device)
     except Exception as exc:
+        if device == "cuda":
+            # Moon Add: preserve the exact lazy CUDA initialization failure for
+            # diagnosis without exposing media content or model prompts.
+            log_exception(
+                "whisper_gpu_inference_failed", exc,
+                requested_device=device_setting, model=model_name,
+            )
         if device_setting != "auto" or device == "cpu":
             message = str(exc)
             if device == "cuda" and ("cublas" in message.lower() or "cudnn" in message.lower()):
@@ -1126,17 +1167,15 @@ def _whisper_model_candidates(
 ) -> list[Path]:
     """Return model locations in explicit-use, selected-install, then shared-cache order."""
     # Moon Begin
-    from huggingface_hub.constants import HF_HUB_CACHE
-
     candidates: list[Path] = []
     if configured_path.strip():
         candidates.append(Path(configured_path).expanduser())
     install_root = _model_install_root(install_dir)
     candidates.append(install_root / model.replace("/", "--"))
-    repo_id = model if "/" in model else f"Systran/faster-whisper-{model}"
-    snapshots = Path(HF_HUB_CACHE) / f"models--{repo_id.replace('/', '--')}" / "snapshots"
-    if _uses_default_model_root(install_dir) and snapshots.exists():
-        candidates.extend(snapshots.glob("*"))
+    # Moon Modified: always include the shared cache, even when the plugin
+    # download directory was customized. Faster-whisper and other local tools
+    # commonly place models here.
+    candidates.extend(_standard_hf_model_candidates(model))
     return list(dict.fromkeys(candidates))
     # Moon End
 
@@ -1153,12 +1192,20 @@ def _local_model_info(
     ]
     if not candidates:
         return None
-    path = max(candidates, key=lambda item: sum((item / name).is_file() for name in required))
+    # Prefer a loadable model over an equally complete but corrupt/old-marker
+    # copy, while preserving the configured-path/install-dir/cache precedence.
+    path = max(
+        candidates,
+        key=lambda item: (
+            _model_directory_is_complete(item),
+            sum((item / name).is_file() for name in required),
+        ),
+    )
     missing = [name for name in required if not (path / name).is_file()]
     size = (path / "model.bin").stat().st_size if (path / "model.bin").is_file() else 0
     marker = path / ".ytba-model-size"
     expected = int(marker.read_text().strip()) if marker.is_file() else size
-    valid = not missing and size > 0 and (not marker.is_file() or size == expected)
+    valid = _model_directory_is_complete(path)
     return LocalModelInfo(
         model=model, path=str(path.resolve()), size=size, valid=valid,
         missing_files=missing if missing else (["model.bin（文件不完整）"] if not valid else []),

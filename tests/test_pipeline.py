@@ -18,6 +18,13 @@ def test_bilibili_video_id_and_part_cache_key():
     assert cache_key_from_url(url) == "bilibili_BV1GJ411x7h7_p3"
 
 
+def test_bilibili_watch_later_url_uses_its_bvid_query_for_identity():
+    # Moon Add: Watch Later is a player route despite not containing BVID in its path.
+    url = "https://www.bilibili.com/list/watchlater/?bvid=BV1mVbv6pER2&oid=117109816493948"
+    assert video_id_from_url(url) == "BV1mVbv6pER2"
+    assert cache_key_from_url(url) == "bilibili_BV1mVbv6pER2_p1"
+
+
 def test_bilibili_ignores_internal_cid_query_when_building_url_cache_key():
     # Moon Modified: CID is task metadata; URL cache identity stays URL-derived.
     url = "https://www.bilibili.com/video/BV1GJ411x7h7?p=3&ytba_cid=987654"

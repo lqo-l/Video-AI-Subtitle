@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
   "name": "视频 AI 双语字幕助手",
-  "version": "1.0.0",
-  "description": "为 YouTube 与 Bilibili 英文/日文视频生成中文字幕、摘要和关键点。",
+  "version": "1.0.1",
+  "description": "为 YouTube 与 Bilibili 英文、日文、韩文视频生成中文字幕、摘要和关键点。",
   "permissions": ["storage", "notifications", "downloads", "nativeMessaging", "scripting"],
   "host_permissions": ["http://127.0.0.1:18765/*", "https://www.youtube.com/*", "https://www.bilibili.com/*", "https://api.bilibili.com/*", "https://*.hdslb.com/*", "https://api.github.com/*"],
   "background": {"service_worker": "background.js"},
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/watch*", "https://www.bilibili.com/video/*", "https://www.bilibili.com/bangumi/play/*"],
+      "matches": ["https://www.youtube.com/watch*", "https://www.bilibili.com/video/*", "https://www.bilibili.com/bangumi/play/*", "https://www.bilibili.com/list/watchlater/*"],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"

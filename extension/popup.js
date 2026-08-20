@@ -88,7 +88,15 @@ chrome.storage.onChanged.addListener((changes,area)=>{
 checkUpdate.onclick=()=>refreshUpdate(true);
 refreshUpdate();
 // Moon End
-start.onclick=async()=>{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});chrome.tabs.sendMessage(tab.id,{type:"start"});window.close();};
+start.onclick=async()=>{
+  start.disabled=true;serviceStatus.textContent="正在连接当前视频…";
+  try{
+    const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
+    const result=await chrome.runtime.sendMessage({type:"start-current-video",tab});
+    if(!result?.ok)throw new Error(result?.error||"无法连接当前视频页面");
+    window.close();
+  }catch(error){serviceStatus.textContent=`无法处理：${error.message}`;start.disabled=false;}
+};
 options.onclick=()=>chrome.runtime.openOptionsPage();
 // Moon Begin: cache removal starts the local service only for the duration of the request.
 clear_cache.onclick=async()=>{

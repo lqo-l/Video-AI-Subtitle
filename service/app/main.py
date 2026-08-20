@@ -29,7 +29,7 @@ from .prompts import ensure_prompt_file, prompt_path, restore_default_prompt
 from .diagnostics import LOG_DIR, log_event
 
 
-app = FastAPI(title="Video Bilingual Assistant", version="1.0.0")
+app = FastAPI(title="Video Bilingual Assistant", version="1.0.1")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Moon Add: active service/update installation root.
 
 

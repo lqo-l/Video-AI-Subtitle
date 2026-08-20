@@ -7,10 +7,11 @@ from service.app.llm import LlmClient
 from service.app.models import JobView, Segment, ServiceConfig
 
 
-def test_caption_selection_prefers_english_then_japanese_then_chinese():
-    captions = {"danmaku": [{}], "zh-CN": [{}], "ja-JP": [{}], "en-US": [{}]}
+def test_caption_selection_prefers_english_then_japanese_then_korean_then_chinese():
+    captions = {"danmaku": [{}], "zh-CN": [{}], "ko-KR": [{}], "ja-JP": [{}], "en-US": [{}]}
     assert pipeline._select_caption(captions) == ("en-US", "en")
     assert pipeline._select_caption({"danmaku": [{}], "ja-JP": [{}]}) == ("ja-JP", "ja")
+    assert pipeline._select_caption({"danmaku": [{}], "ko-KR": [{}], "zh-CN": [{}]}) == ("ko-KR", "ko")
     assert pipeline._select_caption({"danmaku": [{}], "zh-CN": [{}]}) == ("zh-CN", "zh")
     assert pipeline._select_caption({"danmaku": [{}]}) is None
 
@@ -78,6 +79,28 @@ def test_japanese_translation_uses_language_aware_prompt(monkeypatch):
 
     asyncio.run(run())
     assert "日文视频字幕" in prompts[0]
+    assert segments[0].zh == "你好"
+
+
+def test_korean_translation_uses_language_aware_prompt(monkeypatch):
+    # Moon Add: Korean captions share the same structured translation path.
+    client = LlmClient(ServiceConfig(api_key="test"))
+    segments = [Segment(start=0, end=1, en="안녕하세요", source_language="ko")]
+    prompts = []
+
+    async def fake_request(model, system, user):
+        prompts.append(system)
+        payload = json.loads(user)
+        return json.dumps([{"id": payload["translate"][0]["id"], "zh": "你好"}])
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    async def run():
+        await client.translate(segments)
+        await client.close()
+
+    asyncio.run(run())
+    assert "韩文视频字幕" in prompts[0]
     assert segments[0].zh == "你好"
 
 
@@ -209,6 +232,67 @@ def test_prepare_whisper_model_reuses_complete_legacy_model(monkeypatch, tmp_pat
         "small.en", lambda *args: progress.append(args)
     ) == str(model_dir)
     assert progress == [(100, 6, 6, 0, "本机缓存")]
+
+
+def test_prepare_whisper_model_reuses_standard_cache_with_custom_install_dir(monkeypatch, tmp_path):
+    # Moon Add: changing the plugin's install target must not hide models that
+    # faster-whisper previously downloaded into Hugging Face's shared cache.
+    from huggingface_hub import constants
+
+    snapshot = (
+        tmp_path / "hf-cache" / "models--Systran--faster-whisper-medium"
+        / "snapshots" / "revision"
+    )
+    snapshot.mkdir(parents=True)
+    for name in ("config.json", "model.bin", "tokenizer.json"):
+        (snapshot / name).write_bytes(b"cached")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path / "hf-cache"))
+
+    progress = []
+    result = pipeline._prepare_whisper_model(
+        "medium", lambda *args: progress.append(args),
+        install_dir=str(tmp_path / "another-model-folder"),
+    )
+
+    assert result == str(snapshot)
+    assert progress == [(100, 6, 6, 0, "本机缓存")]
+
+
+def test_prepare_whisper_model_reuses_complete_unmarked_legacy_model(monkeypatch, tmp_path):
+    # Moon Add: complete models from pre-marker releases must remain reusable.
+    model_dir = tmp_path / "models" / "small"
+    model_dir.mkdir(parents=True)
+    for name in ("config.json", "model.bin", "tokenizer.json"):
+        (model_dir / name).write_bytes(b"cached")
+    monkeypatch.setattr(pipeline, "CACHE_DIR", tmp_path / "cache")
+
+    assert pipeline._prepare_whisper_model("small") == str(model_dir)
+
+
+def test_inspect_whisper_model_finds_standard_cache_with_custom_install_dir(monkeypatch, tmp_path):
+    # Moon Add: settings must report the same reusable cache as a real job.
+    from huggingface_hub import constants
+
+    snapshot = (
+        tmp_path / "hf-cache" / "models--Systran--faster-whisper-medium"
+        / "snapshots" / "revision"
+    )
+    snapshot.mkdir(parents=True)
+    for name in ("config.json", "model.bin", "tokenizer.json"):
+        (snapshot / name).write_bytes(b"cached")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path / "hf-cache"))
+    monkeypatch.setattr(
+        pipeline,
+        "load_config",
+        lambda: ServiceConfig(
+            whisper_model="medium", model_install_dir=str(tmp_path / "custom-models"),
+        ),
+    )
+
+    status = pipeline.inspect_whisper_model()
+
+    assert status.valid is True
+    assert status.resolved_path == str(snapshot)
 
 
 def test_inspect_whisper_model_reports_complete_and_partial_models(monkeypatch, tmp_path):

@@ -54,12 +54,13 @@
 
   function isVideoPage() {
     return site==="bilibili"
-      ? location.pathname.startsWith("/video/") || location.pathname.startsWith("/bangumi/play/")
+      ? location.pathname.startsWith("/video/") || location.pathname.startsWith("/bangumi/play/") ||
+        (location.pathname.startsWith("/list/watchlater/") && /^BV[0-9A-Za-z]+$/i.test(new URLSearchParams(location.search).get("bvid")||""))
       : location.pathname==="/watch";
   }
 
   function sourceLanguageLabel() {
-    return ({en:"英文",ja:"日文",zh:"中文"})[result?.source_language] || "原文";
+    return ({en:"英文",ja:"日文",ko:"韩文",zh:"中文"})[result?.source_language] || "原文";
   }
 
   // Moon Add: keep provenance visible without exposing implementation details.
@@ -99,7 +100,7 @@
     if (assistantDismissed || document.querySelector("#ytba-prompt") || document.querySelector("#ytba-root")) return;
     const box = document.createElement("div");
     box.id = "ytba-prompt";
-    box.innerHTML = `<strong>生成原文与中文字幕？</strong><div style="margin-top:6px;color:#bbc2ce">支持英文/日文，处理完成后提醒你手动播放。</div><div class="actions"><button class="ytba-button secondary" data-no>暂不</button><button class="ytba-button" data-yes>开始处理</button></div>`;
+    box.innerHTML = `<strong>生成原文与中文字幕？</strong><div style="margin-top:6px;color:#bbc2ce">支持英文/日文/韩文，处理完成后提醒你手动播放。</div><div class="actions"><button class="ytba-button secondary" data-no>暂不</button><button class="ytba-button" data-yes>开始处理</button></div>`;
     box.querySelector("[data-no]").onclick = () => box.remove();
     box.querySelector("[data-yes]").onclick = () => { box.remove(); start(); };
     document.body.appendChild(box);

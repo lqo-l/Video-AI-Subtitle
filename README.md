@@ -11,7 +11,7 @@
 
 </div>
 
-Turn English or Japanese video speech into timestamped Chinese subtitles, then read the live summary beside the player. Existing captions are reused whenever possible; otherwise transcription runs on your own PC with Whisper.
+Turn English, Japanese, or Korean video speech into timestamped Chinese subtitles, then read the live summary beside the player. Existing captions are reused whenever possible; otherwise transcription runs on your own PC with Whisper.
 
 ## Why Video AI Subtitle
 
@@ -63,7 +63,7 @@ Open a supported video, click the extension, then select **Process Current Video
 
 | Priority | Source | Notes |
 |---|---|---|
-| 1 | Platform captions | Uses the video’s available English, Japanese, or Chinese caption tracks. |
+| 1 | Platform captions | Uses the video’s available English, Japanese, Korean, or Chinese caption tracks. |
 | 2 | Bilibili caption API | Resolves the exact video part from the current URL, then accepts only verifiable regular caption tracks. Because Bilibili's AI-caption API can return content that does not belong to the current video, `v1.0.0` ignores tracks marked as AI. |
 | 3 | Local Whisper | Downloads the current video audio and transcribes it locally. Choose CPU, CUDA, and model size in Settings. |
 

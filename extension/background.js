@@ -79,6 +79,7 @@ function bilibiliCaptionLanguage(value) {
   const language = String(value || "").toLowerCase();
   if (/^(en|ai-en)/.test(language)) return "en";
   if (/^(ja|jp|ai-ja|ai-jp)/.test(language)) return "ja";
+  if (/^(ko|kr|ai-ko|ai-kr)/.test(language)) return "ko";
   if (/^(zh|cn|ai-zh|ai-cn)/.test(language)) return "zh";
   return null;
 }
@@ -116,7 +117,8 @@ async function fetchBilibiliJson(url) {
 
 async function resolveBilibiliUrlResource(rawUrl) {
   const url = new URL(rawUrl);
-  const bvid = url.pathname.match(/\/video\/(BV[0-9A-Za-z]+)/i)?.[1];
+  const bvid = url.pathname.match(/\/video\/(BV[0-9A-Za-z]+)/i)?.[1] ||
+    (url.pathname.startsWith("/list/watchlater/") ? url.searchParams.get("bvid") : "");
   const aid = url.pathname.match(/\/video\/av(\d+)/i)?.[1];
   if (bvid || aid) {
     const resourceQuery = bvid ? `bvid=${encodeURIComponent(bvid)}` : `aid=${encodeURIComponent(aid)}`;
@@ -181,7 +183,7 @@ async function fetchBilibiliSubtitles(rawUrl, requestId = "", navigationGenerati
   const ranked = tracks.filter(track => !isBilibiliAiCaption(track))
     .map(track => ({track, language: bilibiliCaptionLanguage(track?.lan)}))
     .filter(item => item.language && item.track?.subtitle_url)
-    .sort((left, right) => ["en", "ja", "zh"].indexOf(left.language) - ["en", "ja", "zh"].indexOf(right.language));
+    .sort((left, right) => ["en", "ja", "ko", "zh"].indexOf(left.language) - ["en", "ja", "ko", "zh"].indexOf(right.language));
   if (!ranked.length) return {segments: [], identity: resource, status: "no_tracks", trackCount: tracks.length, ignoredAiTrackCount, provenance:baseProvenance};
 
   // Moon Modified: validate every candidate for this exact URL resource. A bad
@@ -261,6 +263,37 @@ function releaseService(message) {
 }
 // Moon End
 
+// Moon Begin: Bilibili navigates from Watch Later through its SPA router. A
+// document created on a non-video route can miss declarative content-script
+// injection, so recover it at the explicit user action instead of requiring a refresh.
+function isSupportedVideoUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl || "");
+    return (url.hostname === "www.youtube.com" && url.pathname === "/watch") ||
+      (url.hostname === "www.bilibili.com" &&
+        (url.pathname.startsWith("/video/") || url.pathname.startsWith("/bangumi/play/") ||
+          (url.pathname.startsWith("/list/watchlater/") && /^BV[0-9A-Za-z]+$/i.test(url.searchParams.get("bvid") || ""))));
+  } catch (_) { return false; }
+}
+
+async function startCurrentVideo(tab) {
+  if (!tab?.id || !isSupportedVideoUrl(tab.url)) {
+    throw new Error("请先打开 YouTube 或 B站的完整视频播放页");
+  }
+  try {
+    await chrome.tabs.sendMessage(tab.id, {type:"start"});
+    return {ok:true, injected:false};
+  } catch (error) {
+    const detail=String(error?.message || error);
+    if (!detail.includes("Receiving end does not exist")) throw error;
+    await chrome.scripting.insertCSS({target:{tabId:tab.id},files:["content.css"]});
+    await chrome.scripting.executeScript({target:{tabId:tab.id},files:["content.js"]});
+    await chrome.tabs.sendMessage(tab.id, {type:"start"});
+    return {ok:true, injected:true};
+  }
+}
+// Moon End
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ensure-service") {
     ensureService(sendResponse, message);
@@ -297,6 +330,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if(message.type==="install-extension-update"){
     installExtensionUpdate(message.update).then(sendResponse);
+    return true;
+  }
+  if(message.type==="start-current-video"){
+    startCurrentVideo(message.tab).then(sendResponse).catch(error=>sendResponse({ok:false,error:error.message||String(error)}));
     return true;
   }
   return true;

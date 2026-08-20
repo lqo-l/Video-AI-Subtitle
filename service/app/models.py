@@ -104,7 +104,7 @@ class VideoRequest(BaseModel):
     url: HttpUrl
     # Moon Add: page-loaded Bilibili captions are a higher-fidelity fallback than ASR.
     page_subtitles: list["Segment"] = Field(default_factory=list)
-    page_subtitle_language: Literal["en", "ja", "zh"] | None = None
+    page_subtitle_language: Literal["en", "ja", "ko", "zh"] | None = None
     page_subtitle_identity: PageSubtitleIdentity | None = None
     page_subtitle_status: Literal["found", "no_tracks"] | None = None
     page_subtitle_provenance: PageSubtitleProvenance | None = None
@@ -116,7 +116,7 @@ class Segment(BaseModel):
     en: str
     zh: str = ""
     # Moon Add: `en` remains the cache-compatible original-text field.
-    source_language: Literal["en", "ja", "zh"] = "en"
+    source_language: Literal["en", "ja", "ko", "zh"] = "en"
 
 
 class ProcessedVideo(BaseModel):
@@ -126,7 +126,7 @@ class ProcessedVideo(BaseModel):
     duration: float | None = None
     source: Literal["youtube_subtitles", "bilibili_subtitles", "whisper"]
     platform: Literal["youtube", "bilibili"] = "youtube"
-    source_language: Literal["en", "ja", "zh"] = "en"
+    source_language: Literal["en", "ja", "ko", "zh"] = "en"
     segments: list[Segment]
     summary: str
     key_points: list[str]
@@ -152,7 +152,7 @@ class JobView(BaseModel):
     summary_state: Literal["idle", "running", "completed", "failed"] = "idle"
     summary_error: str | None = None
     platform: Literal["youtube", "bilibili"] = "youtube"
-    source_language: Literal["en", "ja", "zh"] = "en"
+    source_language: Literal["en", "ja", "ko", "zh"] = "en"
     # Moon Add: let the panel distinguish embedded captions from speech recognition.
     source: Literal["youtube_subtitles", "bilibili_subtitles", "whisper"] | None = None
 
